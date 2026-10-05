@@ -21,7 +21,7 @@ El resumen avisa si al bot le faltan permisos en un canal o si un rol está por 
 ## Funciones
 - **Bienvenida:** al entrar alguien, le da el rol de nuevos y envía uno de 10 mensajes aleatorios.
 - **Registro** (`/registro name guild [alianza]` o `!registro`): valida con la API de Albion que el jugador exista y esté en ese gremio. Si es del gremio configurado recibe el rol de miembros; si no, el de otros gremios. Se le quita el rol de nuevos y se le cambia el apodo al nombre del personaje.
-- **Eventos** (`/evento` o `!evento`): formulario con nombre, hora UTC, participantes, roles necesarios e información extra. Crea un evento de Discord y un anuncio con botones para anotarse por rol.
+- **Eventos** (`/evento` o `!evento`): asistente por pasos: 1) tipo de contenido, 2) horario UTC y lugar de salida, 3) cantidad de jugadores (según el tipo, ver `EVENT_CONTENT` en `bot/config.py`), 4) rol de cada lugar ("Asignado por Caller" por defecto). Crea un evento de Discord y un anuncio con los lugares numerados; cada miembro elige su rol en una lista. El anuncio se borra 8 horas después de la hora del evento.
 - **Killbot:** cada 15 s lee el feed general de Albion y publica las kills (verde) y muertes (rojo) del gremio, con una tarjeta con el equipo, la fama, el valor aproximado en plata y el inventario sobre el fondo `assets/fondo_vecindad.webp`. Las kills de todo Albion con mucha fama salen en el canal de gucci kills.
 - **Battle board:** cada 3 min publica las batallas grandes del gremio (zona, duración, kills, fama y tabla de gremios y jugadores).
 - `/helphurtado` (o `!hurtadohelp`): instrucciones de instalación y de uso.
