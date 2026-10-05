@@ -21,9 +21,9 @@ El resumen avisa si al bot le faltan permisos en un canal o si un rol está por 
 ## Funciones
 - **Bienvenida:** al entrar alguien, le da el rol de nuevos y envía uno de 10 mensajes aleatorios.
 - **Registro** (`/registro name guild [alianza]` o `!registro`): valida con la API de Albion que el jugador exista y esté en ese gremio. Si es del gremio configurado recibe el rol de miembros; si no, el de otros gremios. Se le quita el rol de nuevos y se le cambia el apodo al nombre del personaje.
-- **Eventos** (`/evento` o `!evento`): asistente por pasos: 1) tipo de contenido, 2) formulario con horario UTC, lugar de salida y cantidad de jugadores (1 a 100), 3) rol de cada lugar ("Asignado por Caller" por defecto). Crea un evento de Discord y un anuncio con los lugares numerados; cada miembro elige su rol en una lista. El anuncio se borra 8 horas después de la hora del evento.
+- **Eventos** (`/evento` o `!evento`): asistente por pasos: 1) tipo de contenido, 2) formulario con horario UTC, lugar de salida y cantidad de jugadores (1 a 100), 3) rol de cada lugar ("Asignado por Caller" por defecto). Los roles de cada tipo salen de `roles-albion/<tipo>.txt` (un rol por línea); con más de 25 roles se ven por tandas con el botón "Más roles". Crea un evento de Discord y un anuncio con los lugares numerados; cada miembro elige su rol en una lista. El anuncio se borra 8 horas después de la hora del evento.
 - **Killbot:** cada 15 s lee el feed general de Albion y publica las kills (verde) y muertes (rojo) del gremio, con una tarjeta con el equipo, la fama, el valor aproximado en plata y el inventario sobre el fondo `assets/fondo_vecindad.webp`. Las kills de todo Albion con mucha fama salen en el canal de gucci kills.
-- **Battle board:** cada 3 min publica las batallas grandes del gremio (zona, duración, kills, fama y tabla de gremios y jugadores).
+- **Battle board:** cada 3 min publica las batallas grandes del gremio como una tarjeta sobre el fondo de la vecindad: resultado, zona, duración, totales, destacados (más kills, mayor daño, más curación, peor desempeño), tabla de gremios y jugadores del gremio con kills, muertes, fama, daño y curación.
 - `/helphurtado` (o `!hurtadohelp`): instrucciones de instalación y de uso.
 
 ## Requisitos
@@ -51,4 +51,6 @@ journalctl -u seniorhurtadobot -f
 - `bot/cogs/`: un archivo por función (`configuracion`, `general`, `welcome`, `registro`, `eventos`, `killbot`, `battleboard`).
 - `bot/albion.py`: cliente de la API de Albion.
 - `bot/killcard.py`: dibuja la tarjeta de cada kill (Pillow).
+- `bot/battlecard.py`: dibuja la tarjeta de cada batalla.
+- `roles-albion/`: roles de cada tipo de contenido para los eventos.
 - `bot/prices.py`: precios aproximados de objetos (albion-online-data.com).

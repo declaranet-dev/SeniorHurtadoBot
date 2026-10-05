@@ -81,6 +81,20 @@ async def get_guild_battles(guild_id: str, limit: int = 20, server: str = "ameri
     return data
 
 
+async def get_battle_events(battle_id: int, server: str = "americas", max_pages: int = 10) -> list[dict]:
+    """Kills de una batalla (con el daño y la curación de cada participante)."""
+    events = []
+    for page in range(max_pages):
+        data = await _get_json(f"/api/gameinfo/events/battle/{battle_id}",
+                               {"offset": page * 51, "limit": 51}, server)
+        if not isinstance(data, list):
+            raise AlbionAPIError("respuesta inesperada en /events/battle")
+        events.extend(data)
+        if len(data) < 51:
+            break
+    return events
+
+
 async def find_player(name: str, server: str = "americas") -> dict | None:
     """Busca un jugador por nombre exacto (sin distinguir mayúsculas).
 

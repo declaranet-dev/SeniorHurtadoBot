@@ -1,0 +1,11 @@
+Caller
+Tank
+Healer
+Shadow Caller
+DPS Fuego
+DPS Hielo
+DPS Arco
+DPS Brujo
+DPS Espada
+DPS Hachas
+DPS Genérico

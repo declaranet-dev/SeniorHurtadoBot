@@ -1,0 +1,30 @@
+Caller
+Asignado por Caller
+HOJ
+Stopper Lecho
+Stopper Martillo Largo
+Stopeer Genérico
+Stopper Gran Arcano
+Healer Santificador
+Healer Infortunio
+Healer Caido
+Healer Exaltado
+Healer Desenfrenado
+Healer Genérico
+Suport Juradores
+Suport Pasillo
+Suport Enigmatico
+Suport Locus
+Suport Genérico
+Pierce Putrefacto
+Pierce Caza espíritus
+Pierce Rompe reinos
+Pierce Tallada
+Pierce Damnation
+Pierce Genérico
+Brujería
+Perma Prisma
+Dps Canción
+Dps Fisurante
+Dps Pues
+Dps Genérico

@@ -1,5 +1,6 @@
 """Battle board: resumen de las peleas grandes (ZvZ) en las que participa el gremio."""
 
+import io
 import json
 import logging
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from bot import albion, settings
+from bot import albion, battlecard, settings
 from bot.config import BATTLE_INTERVAL_SECONDS, BATTLE_SETTLE_MINUTES, BATTLES_FILE
 
 log = logging.getLogger("seniorhurtadobot.battleboard")
@@ -102,6 +103,35 @@ def build_embed(battle: dict, guild_id: str) -> discord.Embed:
     return embed
 
 
+_cards: dict[int, bytes] = {}  # tarjetas ya dibujadas (se reusan entre servidores)
+
+
+async def send_battle(channel, battle: dict, guild_id: str, server: str):
+    """Publica la batalla con su tarjeta; si la imagen falla, con el resumen en texto."""
+    key = hash((battle["id"], guild_id))
+    image = _cards.get(key)
+    if image is None:
+        try:
+            try:
+                events = await albion.get_battle_events(battle["id"], server)
+            except albion.AlbionAPIError as e:
+                log.warning("[BATTLE] Sin daño/curación para %s: %s", battle["id"], e)
+                events = []
+            image = (await battlecard.render_battle_card(battle, guild_id, events)).getvalue()
+        except Exception:  # la tarjeta es un extra: nunca debe frenar el battle board
+            log.exception("[BATTLE] No se pudo dibujar la tarjeta de %s", battle["id"])
+            await channel.send(embed=build_embed(battle, guild_id))
+            return
+        if len(_cards) > 20:
+            _cards.clear()
+        _cards[key] = image
+    text_embed = build_embed(battle, guild_id)
+    embed = discord.Embed(title=text_embed.title, url=text_embed.url, color=text_embed.color)
+    embed.set_image(url="attachment://batalla.jpg")
+    embed.set_footer(text=f"Batalla {battle['id']} · toca el título para verla en el killboard")
+    await channel.send(embed=embed, file=discord.File(io.BytesIO(image), filename="batalla.jpg"))
+
+
 class BattleBoard(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -149,7 +179,7 @@ class BattleBoard(commands.Cog):
                     continue  # las que siguen en curso se revisan en la próxima vuelta
                 if len(battle["players"]) >= config["batalla_min_jugadores"]:
                     try:
-                        await channel.send(embed=build_embed(battle, config["gremio_id"]))
+                        await send_battle(channel, battle, config["gremio_id"], config["servidor_albion"])
                     except discord.HTTPException as e:
                         log.error("[BATTLE] %s: no se pudo publicar %s: %s", guild.name, battle["id"], e)
                         break

@@ -25,12 +25,14 @@ from bot.config import (
     EVENT_MAX_PLAYERS,
     EVENT_ROLES,
     EVENTOS_FILE,
+    ROLES_DIR,
     SLOT_CALLER_ROLE,
 )
 
 log = logging.getLogger("seniorhurtadobot.eventos")
 
-SLOTS_PER_PAGE = 4  # selects por página del paso 4 (la 5.ª fila son los botones)
+SLOTS_PER_PAGE = 4  # selects por página del paso 3 (la 5.ª fila son los botones)
+ROLES_PER_SELECT = 25  # límite de opciones de una lista de Discord
 SLOTS_PER_FIELD = 15  # líneas por bloque de la tabla del anuncio
 
 
@@ -89,15 +91,40 @@ def save_events(events: dict):
     tmp.replace(EVENTOS_FILE)
 
 
+# Emoji según palabras del nombre del rol (el primero que coincide).
+ROLE_KEYWORDS = [
+    ("asignado", "📣"), ("caller", "📣"), ("tank", "🛡️"), ("hoj", "🛡️"), ("offtank", "🪓"),
+    ("stop", "⛓️"), ("raiz", "⛓️"), ("paratiempo", "⏱️"), ("retencion", "⛓️"),
+    ("healer", "💚"), ("grial", "💚"), ("sup", "✨"), ("shadow", "🌑"), ("prisma", "🔷"),
+    ("pierce", "🗡️"), ("arco", "🏹"), ("bruj", "🔮"), ("fuego", "🔥"), ("hielo", "❄️"),
+    ("espada", "⚔️"), ("hacha", "🪓"), ("daga", "🗡️"), ("garra", "🐾"), ("oso", "🐻"),
+    ("maza", "🔨"), ("dps", "⚔️"), ("daño", "⚔️"), ("scout", "👁️"),
+]
+
+
 def role_emoji(role: str) -> str:
-    if role == SLOT_CALLER_ROLE:
-        return "📣"
-    return EVENT_ROLES.get(role, "🔹")
+    if role in EVENT_ROLES:
+        return EVENT_ROLES[role]
+    lower = role.lower()
+    for word, emoji in ROLE_KEYWORDS:
+        if word in lower:
+            return emoji
+    return "🔹"
 
 
-def slot_roles() -> list[str]:
-    """Opciones de cada lugar: primero "Asignado por Caller", luego los roles."""
-    return [SLOT_CALLER_ROLE, *EVENT_ROLES]
+def content_roles(tipo: str | None) -> list[str]:
+    """Roles del tipo de contenido (roles-albion/<tipo>.txt), con "Asignado por
+    Caller" siempre primero y sin repetidos."""
+    path = ROLES_DIR / f"{tipo}.txt"
+    roles = []
+    if tipo and path.exists():
+        for line in path.read_text(encoding="utf-8-sig").splitlines():
+            role = line.strip()[:80]
+            if role and role != SLOT_CALLER_ROLE and role not in roles:
+                roles.append(role)
+    if not roles:
+        roles = list(EVENT_ROLES)
+    return [SLOT_CALLER_ROLE, *roles]
 
 
 def role_counts(slots: list[str]) -> str:
@@ -264,6 +291,7 @@ class EventWizard(discord.ui.View):
         self.info = ""
         self.slots: list[str] = []
         self.page = 0
+        self.role_window = 0  # tanda de roles visible cuando hay más de 25
         self.render()
 
     # --- pintar cada paso
@@ -287,6 +315,8 @@ class EventWizard(discord.ui.View):
             pages = (len(self.slots) + SLOTS_PER_PAGE - 1) // SLOTS_PER_PAGE
             lines.append(f"\nElige el rol de cada lugar. Página {self.page + 1} de {pages}. "
                          f"Los que no cambies quedan como **{SLOT_CALLER_ROLE}**.")
+            if len(content_roles(self.tipo)) > ROLES_PER_SELECT:
+                lines.append("Este contenido tiene más de 25 roles: usa 🔁 **Más roles** para ver el resto.")
         embed.description = "\n".join(lines) or "Elige el tipo de contenido."
         return embed
 
@@ -302,11 +332,17 @@ class EventWizard(discord.ui.View):
                          disabled=self.tipo is None)
         elif self.step == 3:
             first = self.page * SLOTS_PER_PAGE
+            roles = content_roles(self.tipo)
+            windows = (len(roles) + ROLES_PER_SELECT - 1) // ROLES_PER_SELECT
+            window = roles[self.role_window * ROLES_PER_SELECT:(self.role_window + 1) * ROLES_PER_SELECT]
             for row, idx in enumerate(range(first, min(first + SLOTS_PER_PAGE, len(self.slots)))):
+                shown = list(window)
+                if self.slots[idx] not in shown:  # que siempre se vea el rol ya elegido
+                    shown = [self.slots[idx], *shown[:ROLES_PER_SELECT - 1]]
                 select = discord.ui.Select(row=row, placeholder=f"Jugador {idx + 1}", options=[
-                    discord.SelectOption(label=f"Jugador {idx + 1}: {role}", value=role,
+                    discord.SelectOption(label=f"Jugador {idx + 1}: {role}"[:100], value=role,
                                          emoji=role_emoji(role), default=role == self.slots[idx])
-                    for role in slot_roles()])
+                    for role in shown])
                 select.callback = self._slot_callback(idx)
                 self.add_item(select)
             pages = (len(self.slots) + SLOTS_PER_PAGE - 1) // SLOTS_PER_PAGE
@@ -314,6 +350,9 @@ class EventWizard(discord.ui.View):
                          disabled=self.page == 0)
             self._button("Siguiente", "▶️", self._next_page, row=4, style=discord.ButtonStyle.secondary,
                          disabled=self.page >= pages - 1)
+            if windows > 1:
+                self._button(f"Más roles ({self.role_window + 1}/{windows})", "🔁", self._next_window,
+                             row=4, style=discord.ButtonStyle.primary)
             self._button("Cambiar horario o cantidad", "✏️", self._open_schedule, row=4,
                          style=discord.ButtonStyle.secondary)
             self._button("Publicar evento", "✅", self._publish, row=4)
@@ -334,6 +373,15 @@ class EventWizard(discord.ui.View):
 
     async def _on_type(self, interaction: discord.Interaction):
         self.tipo = interaction.data["values"][0]
+        self.role_window = 0
+        roles = set(content_roles(self.tipo))
+        # Los roles que no existen en el nuevo tipo vuelven a "Asignado por Caller".
+        self.slots = [r if r in roles else SLOT_CALLER_ROLE for r in self.slots]
+        await self.refresh(interaction)
+
+    async def _next_window(self, interaction: discord.Interaction):
+        windows = (len(content_roles(self.tipo)) + ROLES_PER_SELECT - 1) // ROLES_PER_SELECT
+        self.role_window = (self.role_window + 1) % windows
         await self.refresh(interaction)
 
     async def _open_schedule(self, interaction: discord.Interaction):

@@ -37,6 +37,9 @@ EVENT_CONTENT = {
 }
 EVENT_MAX_PLAYERS = 100  # el creador elige de 1 a este número de jugadores
 SLOT_CALLER_ROLE = "Asignado por Caller"  # rol por defecto de cada lugar
+# Roles de cada tipo de contenido: un archivo "<tipo>.txt" con un rol por línea.
+# Si falta el archivo se usan los roles de EVENT_ROLES.
+ROLES_DIR = ROOT_DIR / "roles-albion"
 EVENT_ROLES = {  # roles que se pueden poner en cada lugar, con su emoji
     "Tank": "🛡️",
     "Offtank": "🪓",
