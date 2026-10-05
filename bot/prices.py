@@ -14,13 +14,18 @@ import aiohttp
 
 log = logging.getLogger("seniorhurtadobot.prices")
 
-PRICES_URL = "https://west.albion-online-data.com/api/v2/stats/prices/{}.json"
+PRICES_HOSTS = {
+    "americas": "https://west.albion-online-data.com",
+    "europe": "https://europe.albion-online-data.com",
+    "asia": "https://east.albion-online-data.com",
+}
+PRICES_PATH = "/api/v2/stats/prices/{}.json"
 CITIES = "Caerleon,Bridgewatch,Lymhurst,Martlock,Thetford,FortSterling,Brecilien"
 CACHE_SECONDS = 3600
 MAX_AGE_DAYS = 30  # precios más viejos no se toman en cuenta
 BATCH = 60  # objetos por consulta (límite de largo de la URL)
 
-_cache: dict[tuple[str, int], tuple[float, int]] = {}  # (objeto, calidad) -> (hora, precio)
+_cache: dict[tuple[str, str, int], tuple[float, int]] = {}  # (servidor, objeto, calidad) -> (hora, precio)
 
 
 def _pick_price(rows: list[dict], quality: int) -> int:
@@ -39,8 +44,8 @@ def _pick_price(rows: list[dict], quality: int) -> int:
     return int(statistics.median(values)) if values else 0
 
 
-async def _fetch(items: list[str]) -> list[dict]:
-    url = PRICES_URL.format(",".join(items))
+async def _fetch(items: list[str], server: str) -> list[dict]:
+    url = PRICES_HOSTS.get(server, PRICES_HOSTS["americas"]) + PRICES_PATH.format(",".join(items))
     timeout = aiohttp.ClientTimeout(total=20)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.get(url, params={"locations": CITIES}) as resp:
@@ -49,13 +54,13 @@ async def _fetch(items: list[str]) -> list[dict]:
             return await resp.json()
 
 
-async def get_prices(items: list[tuple[str, int]]) -> dict[tuple[str, int], int]:
+async def get_prices(items: list[tuple[str, int]], server: str = "americas") -> dict[tuple[str, int], int]:
     """Precio aproximado de cada (objeto, calidad). 0 si no hay datos."""
     now = time.time()
     result = {}
     missing = set()
     for key in items:
-        cached = _cache.get(key)
+        cached = _cache.get((server, *key))
         if cached and now - cached[0] < CACHE_SECONDS:
             result[key] = cached[1]
         else:
@@ -65,7 +70,7 @@ async def get_prices(items: list[tuple[str, int]]) -> dict[tuple[str, int], int]
     rows_by_item: dict[str, list[dict]] = {}
     for i in range(0, len(ids), BATCH):
         try:
-            for row in await _fetch(ids[i:i + BATCH]):
+            for row in await _fetch(ids[i:i + BATCH], server):
                 rows_by_item.setdefault(row["item_id"], []).append(row)
         except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError) as e:
             log.warning("[PRECIOS] No se pudieron consultar precios: %s", e)
@@ -73,7 +78,7 @@ async def get_prices(items: list[tuple[str, int]]) -> dict[tuple[str, int], int]
 
     for key in missing:
         price = _pick_price(rows_by_item.get(key[0], []), key[1])
-        _cache[key] = (now, price)
+        _cache[(server, *key)] = (now, price)
         result[key] = price
     return result
 
@@ -95,6 +100,6 @@ def inventory_items(player: dict) -> list[tuple[str, int, int]]:
     return out
 
 
-async def value_of(items: list[tuple[str, int, int]]) -> int:
-    prices = await get_prices([(t, q) for t, q, _ in items])
+async def value_of(items: list[tuple[str, int, int]], server: str = "americas") -> int:
+    prices = await get_prices([(t, q) for t, q, _ in items], server)
     return sum(prices.get((t, q), 0) * c for t, q, c in items)

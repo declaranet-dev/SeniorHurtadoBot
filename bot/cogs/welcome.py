@@ -1,4 +1,4 @@
-"""Bienvenida del gremio: asigna el rol KikinJR y saluda al nuevo miembro."""
+"""Bienvenida: asigna el rol de nuevos y saluda al miembro (configurable con /configuracion)."""
 
 import logging
 import random
@@ -6,7 +6,7 @@ import random
 import discord
 from discord.ext import commands
 
-from bot.config import WELCOME_ROLE_NAME, get_welcome_channel_id
+from bot import settings
 
 log = logging.getLogger("seniorhurtadobot.welcome")
 
@@ -34,14 +34,26 @@ WELCOME_MESSAGES = [
     "{usuario}. Por ahora te toca KikinJR... si te quieres ganar un pesito, solo tienes que moverme la cola. 😎",
 ]
 
-ROLE_FOOTER = "\n\nYa tienes tu rol KikinJR.\nAhora comienza la aventura. ⚔️🏠"
+ROLE_FOOTER = "\n\nYa tienes tu rol {rol}.\nAhora comienza la aventura. ⚔️🏠"
 
 
-def pick_welcome_message(mention: str, role_assigned: bool) -> str:
+def pick_welcome_message(mention: str, role_name: str | None) -> str:
     message = random.choice(WELCOME_MESSAGES).format(usuario=mention)
-    if role_assigned:
-        message += ROLE_FOOTER
+    if role_name:
+        message += ROLE_FOOTER.format(rol=role_name)
     return message
+
+
+def role_problem(guild: discord.Guild, role: discord.Role | None) -> str | None:
+    """Motivo por el que el bot no puede asignar el rol, o None."""
+    if role is None:
+        return "no hay rol de nuevos configurado (/configuracion)"
+    me = guild.me
+    if not me.guild_permissions.manage_roles:
+        return "el bot no tiene el permiso 'Gestionar roles'"
+    if role >= me.top_role:
+        return f"el rol {role.name} está por encima del rol del bot"
+    return None
 
 
 class Welcome(commands.Cog):
@@ -52,95 +64,48 @@ class Welcome(commands.Cog):
     async def on_ready(self):
         """Revisa al arrancar que la bienvenida pueda funcionar en cada servidor."""
         for guild in self.bot.guilds:
-            role = discord.utils.get(guild.roles, name=WELCOME_ROLE_NAME)
-            me = guild.me
-            if role is None:
-                log.error("[WELCOME] ERROR: El rol %s no existe en %s", WELCOME_ROLE_NAME, guild.name)
-            elif not me.guild_permissions.manage_roles:
-                log.error(
-                    "[WELCOME] ERROR: El bot no tiene permisos suficientes en %s "
-                    "(falta 'Gestionar roles')", guild.name,
-                )
-            elif role >= me.top_role:
-                log.error(
-                    "[WELCOME] ERROR: El rol %s está por encima del bot en %s",
-                    WELCOME_ROLE_NAME, guild.name,
-                )
-            else:
-                log.info("[WELCOME] Listo para asignar %s en %s", WELCOME_ROLE_NAME, guild.name)
-
-            channel_id = get_welcome_channel_id()
-            channel = guild.get_channel(channel_id) if channel_id else None
-            if channel is None:
-                log.error("[WELCOME] ERROR: Canal de bienvenida no encontrado (WELCOME_CHANNEL_ID)")
-            else:
-                log.info("[WELCOME] Canal de bienvenida: #%s", channel.name)
+            if not settings.get(guild.id)["canal_bienvenida"]:
+                continue  # bienvenida sin configurar en este servidor
+            problem = role_problem(guild, settings.role(guild, "rol_nuevo"))
+            if problem:
+                log.error("[WELCOME] %s: %s", guild.name, problem)
+            channel = settings.channel(guild, "canal_bienvenida")
+            log.info("[WELCOME] %s: canal #%s", guild.name, getattr(channel, "name", "no encontrado"))
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
-        log.info("[WELCOME] Nuevo miembro: %s (id %s)", member, member.id)
+        guild = member.guild
+        log.info("[WELCOME] %s: nuevo miembro %s (id %s)", guild.name, member, member.id)
         # Cada paso maneja sus propios errores: si falla el rol, igual se
         # da la bienvenida; si falla la bienvenida, el rol se queda puesto.
-        role_assigned = await self._assign_role(member)
-        await self._send_welcome(member, role_assigned)
+        role = settings.role(guild, "rol_nuevo")
+        assigned = await self._assign_role(member, role)
+        await self._send_welcome(member, role.name if assigned else None)
 
-    async def _assign_role(self, member: discord.Member) -> bool:
-        guild = member.guild
-        role = discord.utils.get(guild.roles, name=WELCOME_ROLE_NAME)
+    async def _assign_role(self, member: discord.Member, role: discord.Role | None) -> bool:
         if role is None:
-            log.error("[WELCOME] ERROR: El rol %s no existe", WELCOME_ROLE_NAME)
+            return False  # sin rol configurado: solo se da la bienvenida
+        problem = role_problem(member.guild, role)
+        if problem:
+            log.error("[WELCOME] ERROR: %s", problem)
             return False
-
-        me = guild.me
-        if not me.guild_permissions.manage_roles:
-            log.error(
-                "[WELCOME] ERROR: El bot no tiene permisos suficientes "
-                "(falta 'Gestionar roles')"
-            )
-            return False
-        if role >= me.top_role:
-            log.error(
-                "[WELCOME] ERROR: El rol %s está por encima del bot "
-                "(rol más alto del bot: %s). Sube el rol del bot por encima "
-                "de %s en Ajustes del servidor > Roles.",
-                WELCOME_ROLE_NAME, me.top_role.name, WELCOME_ROLE_NAME,
-            )
-            return False
-
         try:
             await member.add_roles(role, reason="Bienvenida automática")
-        except discord.Forbidden:
-            log.error("[WELCOME] ERROR: El bot no tiene permisos suficientes")
-            return False
         except discord.HTTPException as e:
-            log.error("[WELCOME] ERROR: No se pudo asignar %s: %s", WELCOME_ROLE_NAME, e)
+            log.error("[WELCOME] ERROR: No se pudo asignar %s: %s", role.name, e)
             return False
-
-        log.info("[WELCOME] Rol %s asignado correctamente", WELCOME_ROLE_NAME)
+        log.info("[WELCOME] Rol %s asignado correctamente", role.name)
         return True
 
-    async def _send_welcome(self, member: discord.Member, role_assigned: bool):
-        channel_id = get_welcome_channel_id()
-        if channel_id is None:
-            log.error("[WELCOME] ERROR: WELCOME_CHANNEL_ID no está configurado en .env")
-            return
-        channel = member.guild.get_channel(channel_id)
-        if not isinstance(channel, discord.TextChannel):
-            log.error(
-                "[WELCOME] ERROR: No encontré el canal de texto con id %s en este servidor",
-                channel_id,
-            )
-            return
-
+    async def _send_welcome(self, member: discord.Member, role_name: str | None):
+        channel = settings.channel(member.guild, "canal_bienvenida")
+        if channel is None:
+            return  # bienvenida sin configurar en este servidor
         try:
-            await channel.send(pick_welcome_message(member.mention, role_assigned))
-        except discord.Forbidden:
-            log.error("[WELCOME] ERROR: El bot no puede escribir en #%s", channel.name)
-            return
+            await channel.send(pick_welcome_message(member.mention, role_name))
         except discord.HTTPException as e:
-            log.error("[WELCOME] ERROR: No se pudo enviar la bienvenida: %s", e)
+            log.error("[WELCOME] ERROR: No se pudo enviar la bienvenida en #%s: %s", channel.name, e)
             return
-
         log.info("[WELCOME] Mensaje enviado correctamente en #%s", channel.name)
 
 

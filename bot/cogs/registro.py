@@ -1,4 +1,4 @@
-"""Registro de jugadores: !registro asigna el rol según el gremio de Albion."""
+"""Registro de jugadores: valida con Albion y da el rol según el gremio configurado."""
 
 import json
 import logging
@@ -10,20 +10,10 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot import albion
-from bot.config import (
-    GUILD_ROLE_NAME,
-    OUTSIDER_ROLE_NAME,
-    REGISTROS_FILE,
-    WELCOME_ROLE_NAME,
-    get_registro_channel_id,
-)
+from bot import albion, settings
+from bot.config import REGISTROS_FILE
 
 log = logging.getLogger("seniorhurtadobot.registro")
-
-# Nombres de gremio (ya normalizados) que cuentan como Vecindad del Chavo.
-GUILD_ALIASES = {"vecindad del chavo", "vecindad"}
-
 
 def normalize(text: str) -> str:
     """Minúsculas, sin acentos y con espacios simples."""
@@ -44,21 +34,14 @@ def parse_registro(text: str) -> tuple[str, str, str | None] | None:
     return parts[0], parts[1], alliance
 
 
-def is_vecindad(guild_name: str) -> bool:
-    return normalize(guild_name) in GUILD_ALIASES
-
-
-def find_role(guild: discord.Guild, name: str) -> discord.Role | None:
-    return discord.utils.find(lambda r: r.name.lower() == name.lower(), guild.roles)
-
-
 def save_registro(member: discord.Member, player: str, guild_name: str,
-                  alliance: str | None, role_name: str):
+                  alliance: str | None, role_name: str | None):
+    """Guarda el registro en data/registros.json, separado por servidor de Discord."""
     REGISTROS_FILE.parent.mkdir(parents=True, exist_ok=True)
     data = {}
     if REGISTROS_FILE.exists():
         data = json.loads(REGISTROS_FILE.read_text(encoding="utf-8"))
-    data[str(member.id)] = {
+    data.setdefault(str(member.guild.id), {})[str(member.id)] = {
         "discord": str(member),
         "jugador": player,
         "gremio": guild_name,
@@ -71,27 +54,25 @@ def save_registro(member: discord.Member, player: str, guild_name: str,
     tmp.replace(REGISTROS_FILE)
 
 
-async def set_roles(member: discord.Member, target_name: str,
-                    other_name: str) -> str | None:
-    """Pone el rol del gremio y quita KikinJR y el rol contrario.
+async def set_roles(member: discord.Member, target: discord.Role | None,
+                    other: discord.Role | None) -> str | None:
+    """Pone el rol que le toca y quita el rol de nuevos y el rol contrario.
 
     Devuelve None si todo fue bien, o un texto con el problema.
     """
     guild = member.guild
     me = guild.me
-    target = find_role(guild, target_name)
     if target is None:
-        log.error("[REGISTRO] ERROR: El rol %s no existe", target_name)
-        return f"el rol {target_name} no existe en el servidor."
+        return "el rol no está configurado (/configuracion)."
     if not me.guild_permissions.manage_roles:
         log.error("[REGISTRO] ERROR: El bot no tiene permisos suficientes")
         return "el bot no tiene permiso para gestionar roles."
     if target >= me.top_role:
-        log.error("[REGISTRO] ERROR: El rol %s está por encima del bot", target_name)
-        return f"el rol {target_name} está por encima del bot."
+        log.error("[REGISTRO] ERROR: El rol %s está por encima del bot", target.name)
+        return f"el rol {target.name} está por encima del bot."
 
     to_remove = [
-        r for r in (find_role(guild, WELCOME_ROLE_NAME), find_role(guild, other_name))
+        r for r in (settings.role(guild, "rol_nuevo"), other)
         if r is not None and r in member.roles and r < me.top_role
     ]
     try:
@@ -111,10 +92,12 @@ async def set_roles(member: discord.Member, target_name: str,
 
 
 def same_guild(entered: str, official: str) -> bool:
-    """El gremio escrito coincide con el oficial (o ambos son la Vecindad)."""
-    if normalize(entered) == normalize(official):
+    """El gremio escrito coincide con el oficial, o es una parte clara de él
+    (p. ej. "vecindad" para "Vecindad Del Chavo")."""
+    entered, official = normalize(entered), normalize(official)
+    if entered == official:
         return True
-    return is_vecindad(entered) and is_vecindad(official)
+    return len(entered) >= 4 and entered in official
 
 
 def check_player(player: str, guild_name: str, alliance: str | None,
@@ -144,8 +127,9 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
 
     # Validación con la API de Albion: solo se registra si el jugador existe
     # y está en el gremio que escribió. Se guardan los nombres oficiales.
+    config = settings.get(member.guild.id)
     try:
-        api_player = await albion.find_player(player)
+        api_player = await albion.find_player(player, config["servidor_albion"])
     except albion.AlbionAPIError as e:
         log.error("[REGISTRO] ERROR: La API de Albion no responde: %s", e)
         return ("⚠️ No pude verificar tu jugador porque la API de Albion no responde. "
@@ -158,13 +142,14 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     guild_name = api_player["GuildName"]
     alliance = api_player.get("AllianceName") or None
 
-    chavo = is_vecindad(guild_name)
-    target_name = GUILD_ROLE_NAME if chavo else OUTSIDER_ROLE_NAME
-    other_name = OUTSIDER_ROLE_NAME if chavo else GUILD_ROLE_NAME
+    is_member = bool(config["gremio_id"]) and api_player.get("GuildId") == config["gremio_id"]
+    member_role = settings.role(member.guild, "rol_miembro")
+    outsider_role = settings.role(member.guild, "rol_externo")
+    target, other = (member_role, outsider_role) if is_member else (outsider_role, member_role)
 
-    role_error = await set_roles(member, target_name, other_name)
+    role_error = await set_roles(member, target, other)
     nick_error = await set_nickname(member, player)
-    save_registro(member, player, guild_name, alliance, target_name)
+    save_registro(member, player, guild_name, alliance, target.name if target else None)
 
     lines = [
         f"✅ **Registro completado** — {member.mention}",
@@ -174,10 +159,10 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     ]
     if role_error:
         lines.append(f"⚠️ No pude darte tu rol: {role_error} Avisa a un admin.")
-    elif chavo:
-        lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{target_name}**.")
+    elif is_member:
+        lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{target.name}**.")
     else:
-        lines.append(f"👀 No eres de la vecindad... te tocó el rol **{target_name}**.")
+        lines.append(f"👀 No eres de la vecindad... te tocó el rol **{target.name}**.")
     if nick_error:
         lines.append(f"⚠️ No pude cambiarte el apodo: {nick_error}")
     else:
@@ -212,9 +197,9 @@ async def set_nickname(member: discord.Member, player: str) -> str | None:
     return None
 
 
-def wrong_channel(channel_id_used: int | None) -> str | None:
+def wrong_channel(guild: discord.Guild, channel_id_used: int | None) -> str | None:
     """Mensaje de aviso si el registro se intenta fuera del canal configurado."""
-    channel_id = get_registro_channel_id()
+    channel_id = settings.get(guild.id)["canal_registro"]
     if channel_id and channel_id_used != channel_id:
         return f"El registro se hace en <#{channel_id}>."
     return None
@@ -250,7 +235,7 @@ class RegistroView(discord.ui.View):
                        style=discord.ButtonStyle.primary,
                        custom_id="seniorhurtadobot:registro")
     async def open_form(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if (warning := wrong_channel(interaction.channel_id)):
+        if (warning := wrong_channel(interaction.guild, interaction.channel_id)):
             await interaction.response.send_message(warning, ephemeral=True)
             return
         await interaction.response.send_modal(RegistroModal())
@@ -264,7 +249,7 @@ class Registro(commands.Cog):
     @commands.command(name="registro")
     @commands.guild_only()
     async def registro(self, ctx: commands.Context, *, texto: str = ""):
-        if (warning := wrong_channel(ctx.channel.id)):
+        if (warning := wrong_channel(ctx.guild, ctx.channel.id)):
             await ctx.send(warning)
             return
 
@@ -292,7 +277,7 @@ class Registro(commands.Cog):
                              name: app_commands.Range[str, 1, 32],
                              guild: app_commands.Range[str, 1, 64],
                              alianza: app_commands.Range[str, 0, 64] | None = None):
-        if (warning := wrong_channel(interaction.channel_id)):
+        if (warning := wrong_channel(interaction.guild, interaction.channel_id)):
             await interaction.response.send_message(warning, ephemeral=True)
             return
         # Cambiar roles puede tardar: se avisa a Discord para no pasar de 3 s.
@@ -306,18 +291,17 @@ class Registro(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         for guild in self.bot.guilds:
-            for name in (GUILD_ROLE_NAME, OUTSIDER_ROLE_NAME):
-                role = find_role(guild, name)
+            config = settings.get(guild.id)
+            if not config["canal_registro"]:
+                continue  # registro sin configurar en este servidor
+            if not config["gremio_id"]:
+                log.warning("[REGISTRO] %s: no hay gremio de Albion configurado", guild.name)
+            for key in ("rol_miembro", "rol_externo"):
+                role = settings.role(guild, key)
                 if role is None:
-                    log.error("[REGISTRO] ERROR: El rol %s no existe en %s", name, guild.name)
+                    log.warning("[REGISTRO] %s: falta %s", guild.name, settings.ROLES[key])
                 elif role >= guild.me.top_role:
-                    log.error("[REGISTRO] ERROR: El rol %s está por encima del bot", name)
-            channel_id = get_registro_channel_id()
-            channel = guild.get_channel(channel_id) if channel_id else None
-            if channel is None:
-                log.warning("[REGISTRO] REGISTRO_CHANNEL_ID no configurado: !registro funciona en cualquier canal")
-            else:
-                log.info("[REGISTRO] Canal de registro: #%s", channel.name)
+                    log.error("[REGISTRO] %s: el rol %s está por encima del bot", guild.name, role.name)
 
 
 async def setup(bot: commands.Bot):

@@ -1,57 +1,54 @@
 # SeniorHurtadoBot
 
-Bot de Discord (Python + discord.py).
+Bot de Discord para gremios de Albion Online (Python + discord.py). Un mismo bot sirve para varios servidores de Discord: cada servidor tiene su propia configuración, que se hace con `/configuracion`.
+
+## Invitar el bot a un servidor
+https://discord.com/oauth2/authorize?client_id=1556691846376325131&scope=bot+applications.commands&permissions=17601178749952
+
+Después, en el servidor:
+1. Pon el rol del bot **por encima** de los roles que va a asignar (Ajustes del servidor > Roles).
+2. Usa `/configuracion` (requiere el permiso "Gestionar servidor").
+
+## /configuracion
+Asistente de 4 páginas (solo lo ve quien lo usa):
+1. **Canales de la comunidad:** bienvenida, registro, eventos.
+2. **Canales del killbot:** kills, muertes, battle board, gucci kills.
+3. **Roles:** rol al entrar, rol para miembros del gremio, rol para otros gremios, rol que crea eventos.
+4. **Gremio de Albion:** nombre del gremio (se valida con la API), servidor (americas/europe/asia), jugadores mínimos para el battle board y fama mínima de las gucci kills.
+
+El resumen avisa si al bot le faltan permisos en un canal o si un rol está por encima del bot. Lo que no se configure simplemente no se usa en ese servidor. La configuración se guarda en `data/servidores.json`.
+
+## Funciones
+- **Bienvenida:** al entrar alguien, le da el rol de nuevos y envía uno de 10 mensajes aleatorios.
+- **Registro** (`/registro name guild [alianza]` o `!registro`): valida con la API de Albion que el jugador exista y esté en ese gremio. Si es del gremio configurado recibe el rol de miembros; si no, el de otros gremios. Se le quita el rol de nuevos y se le cambia el apodo al nombre del personaje.
+- **Eventos** (`/evento` o `!evento`): formulario con nombre, hora UTC, participantes, roles necesarios e información extra. Crea un evento de Discord y un anuncio con botones para anotarse por rol.
+- **Killbot:** cada 15 s lee el feed general de Albion y publica las kills (verde) y muertes (rojo) del gremio, con una tarjeta con el equipo, la fama, el valor aproximado en plata y el inventario sobre el fondo `assets/fondo_vecindad.webp`. Las kills de todo Albion con mucha fama salen en el canal de gucci kills.
+- **Battle board:** cada 3 min publica las batallas grandes del gremio (zona, duración, kills, fama y tabla de gremios y jugadores).
+- `/helphurtado` (o `!hurtadohelp`): instrucciones de instalación y de uso.
 
 ## Requisitos
 - Python 3.12
 - Dependencias en `requirements.txt`: `discord.py`, `python-dotenv`, `pillow`
-- Archivo `.env` (no se sube a Git; ver `.env.example`):
-  - `DISCORD_TOKEN`: token del bot
-  - `REGISTRO_CHANNEL_ID`: ID del canal donde se usa `!registro` (si está vacío, funciona en cualquier canal)
-  - `ALBION_SERVER`: `americas` (por defecto), `europe` o `asia`. Servidor de Albion donde se validan los jugadores.
-  - `EVENTOS_CHANNEL_ID`: ID del canal donde se crean eventos.
-  - `KILLBOT_GUILD_ID`, `KILLBOT_CHANNEL_ID`, `KILLBOT_DEATHS_CHANNEL_ID`, `KILLBOT_MIN_FAME`: configuración del killbot.
-  - `BATTLEBOARD_CHANNEL_ID`, `BATTLE_MIN_PLAYERS`: configuración del battle board.
-  - `WELCOME_CHANNEL_ID`: ID del canal de bienvenida (Discord con Modo desarrollador activo > clic derecho en el canal > Copiar ID del canal)
+- Archivo `.env` con `DISCORD_TOKEN` (no se sube a Git; ver `.env.example`)
 - En el Developer Portal: Bot > Privileged Gateway Intents > activar **Message Content Intent** y **Server Members Intent**
-- En el servidor: el bot necesita un rol con **Gestionar roles** colocado por encima de `KikinJR`
 
-## Instalación
+## Instalación y ejecución
 ```
 py -m pip install -r requirements.txt
-```
-
-## Ejecución
-```
 py main.py
 ```
-Sin Message Content Intent el bot arranca igual, pero los comandos solo responden por mensaje directo (DM).
-
-## Comandos
-- `!hurtadohelp`: muestra la ayuda.
-- `/registro name guild [alianza]`: comando de barra con campos para nombre, gremio y alianza (opcional). `!registro` abre un formulario con los mismos campos. También acepta `!registro Nombre [X] Gremio [Y] Alianza [Z]` en una línea. Si el gremio es "Vecindad del Chavo" o "vecindad" (sin importar mayúsculas ni acentos) recibe el rol `chavo`; si no, `Chusma`. En ambos casos se le quita `KikinJR`. Antes de registrar, el bot consulta la API oficial de Albion (gameinfo) y solo registra si el jugador existe y está en ese gremio (y alianza, si la escribió). Se guardan los nombres oficiales. Los registros se guardan en `data/registros.json` (no se sube a Git).
-
-- `!evento`, `!eventos` o `/evento` (solo rol `Admin` o administradores, en `EVENTOS_CHANNEL_ID`): abre un formulario con nombre, hora UTC, participantes, roles necesarios (lista desplegable) e información extra. Crea un evento de Discord y publica el anuncio en el canal con un botón por rol: los miembros pulsan su rol (o Salir) y la tabla de anotados se actualiza sola. Cada persona va en un solo rol y no se pasa del número de participantes. Los anotados se guardan en `data/eventos.json`. Las opciones de roles están en `EVENT_ROLES` de `bot/config.py`.
-
-## Killbot
-Cada 60 s consulta la API de Albion y publica las kills (verde) en `KILLBOT_CHANNEL_ID` y las muertes (rojo) en `KILLBOT_DEATHS_CHANNEL_ID` del gremio `KILLBOT_GUILD_ID`, con asesino, víctima, IP, fama, asistencias, arma y enlace al killboard. Al arrancar por primera vez no publica el historial. Las kills de todo Albion (de cualquier gremio) de 5.000.000 de fama o más (`GUCCI_MIN_FAME` en `bot/config.py`) salen en `GUCCI_CHANNEL_ID` como 💵 GUCCI KILL. Cada mensaje lleva una tarjeta (imagen) con el equipo de los dos jugadores, la fama, el valor aproximado en plata (precios de albion-online-data.com) y el inventario de la víctima, sobre el fondo `assets/fondo_vecindad.webp`. Si la tarjeta falla, el mensaje sale sin imagen. `KILLBOT_MIN_FAME` filtra por fama mínima. El último evento publicado se guarda en `data/killbot.json`.
-
-## Battle board
-Cada 3 min revisa las batallas del gremio (`KILLBOT_GUILD_ID`) y publica en `BATTLEBOARD_CHANNEL_ID` las que tienen al menos `BATTLE_MIN_PLAYERS` jugadores (10 por defecto), 10 min después de terminar: zona, duración, jugadores, kills, fama, tabla de gremios y los jugadores del gremio con sus kills/muertes/fama. Las publicadas se guardan en `data/battles.json`.
-
-## Bienvenida
-Al entrar un miembro nuevo, el bot le asigna el rol `KikinJR` y envía uno de 10 mensajes aleatorios en el canal `WELCOME_CHANNEL_ID`. Los logs llevan el prefijo `[WELCOME]`. El bot no crea roles ni cambia permisos.
+En el servidor (vcn-serverus) corre como servicio `seniorhurtadobot`:
+```
+cd ~/SeniorHurtadoBot && git pull && .venv/bin/pip install -r requirements.txt && sudo systemctl restart seniorhurtadobot
+journalctl -u seniorhurtadobot -f
+```
 
 ## Estructura
 - `main.py`: punto de entrada.
-- `bot/config.py`: lee `DISCORD_TOKEN` desde `.env`.
+- `bot/config.py`: constantes y token.
+- `bot/settings.py`: configuración por servidor de Discord.
 - `bot/client.py`: clase del bot y lista `EXTENSIONS`.
-- `bot/cogs/welcome.py`: bienvenida y rol KikinJR.
-- `bot/cogs/registro.py`: comando `!registro` y `/registro`.
-- `bot/cogs/eventos.py`: comando `!evento` y `/evento`.
-- `bot/cogs/killbot.py`: killbot del gremio.
-- `bot/cogs/battleboard.py`: resumen de batallas del gremio.
+- `bot/cogs/`: un archivo por función (`configuracion`, `general`, `welcome`, `registro`, `eventos`, `killbot`, `battleboard`).
+- `bot/albion.py`: cliente de la API de Albion.
 - `bot/killcard.py`: dibuja la tarjeta de cada kill (Pillow).
 - `bot/prices.py`: precios aproximados de objetos (albion-online-data.com).
-- `bot/albion.py`: cliente de la API de Albion (reutilizable para futuros comandos).
-- `bot/cogs/`: un archivo por grupo de comandos. Para añadir comandos (p. ej. Albion Online), crea `bot/cogs/albion.py` y agrégalo a `EXTENSIONS`.

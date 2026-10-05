@@ -10,32 +10,34 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot.config import (
-    EVENT_ADMIN_ROLE_NAME,
-    EVENT_DURATION_HOURS,
-    EVENT_ROLES,
-    EVENTOS_FILE,
-    get_eventos_channel_id,
-)
+from bot import settings
+from bot.config import EVENT_DURATION_HOURS, EVENT_ROLES, EVENTOS_FILE
 
 log = logging.getLogger("seniorhurtadobot.eventos")
 
 
 def can_create_events(member: discord.Member) -> bool:
-    """Rol Admin, o permiso de Administrador (incluye al dueño del servidor)."""
+    """Rol configurado para eventos, o permiso de Administrador (incluye al dueño)."""
     if member.guild_permissions.administrator:
         return True
-    return any(r.name.lower() == EVENT_ADMIN_ROLE_NAME.lower() for r in member.roles)
+    role = settings.role(member.guild, "rol_admin_eventos")
+    return role is not None and role in member.roles
+
+
+def access_problem(member: discord.Member, channel_id: int | None) -> str | None:
+    """Devuelve el motivo por el que no puede crear eventos aquí, o None."""
+    events_channel = settings.get(member.guild.id)["canal_eventos"]
+    if events_channel and channel_id != events_channel:
+        return f"Los eventos se crean en <#{events_channel}>."
+    if not can_create_events(member):
+        role = settings.role(member.guild, "rol_admin_eventos")
+        who = f"el rol **{role.name}**" if role else "los administradores"
+        return f"Solo {who} puede crear eventos."
+    return None
 
 
 def check_access(interaction: discord.Interaction) -> str | None:
-    """Devuelve el motivo por el que no puede crear eventos aquí, o None."""
-    channel_id = get_eventos_channel_id()
-    if channel_id and interaction.channel_id != channel_id:
-        return f"Los eventos se crean en <#{channel_id}>."
-    if not can_create_events(interaction.user):
-        return f"Solo el rol **{EVENT_ADMIN_ROLE_NAME}** puede crear eventos."
-    return None
+    return access_problem(interaction.user, interaction.channel_id)
 
 
 def parse_hour_utc(text: str, now: datetime | None = None) -> datetime | None:
@@ -284,19 +286,15 @@ class Eventos(commands.Cog):
     @commands.command(name="evento", aliases=["eventos"])
     @commands.guild_only()
     async def evento(self, ctx: commands.Context):
-        channel_id = get_eventos_channel_id()
-        if channel_id and ctx.channel.id != channel_id:
-            await ctx.send(f"Los eventos se crean en <#{channel_id}>.")
-            return
-        if not can_create_events(ctx.author):
-            await ctx.send(f"Solo el rol **{EVENT_ADMIN_ROLE_NAME}** puede crear eventos.")
+        if (problem := access_problem(ctx.author, ctx.channel.id)):
+            await ctx.send(problem)
             return
         await ctx.send(
             "📅 **Crear evento**\nPulsa el botón y llena el formulario.",
             view=EventoView(),
         )
 
-    @app_commands.command(name="evento", description="Crea un evento del gremio (solo Admin)")
+    @app_commands.command(name="evento", description="Crea un evento del gremio")
     @app_commands.guild_only()
     async def evento_slash(self, interaction: discord.Interaction):
         if (problem := check_access(interaction)):
@@ -309,12 +307,9 @@ class Eventos(commands.Cog):
         for guild in self.bot.guilds:
             if not guild.me.guild_permissions.manage_events:
                 log.error("[EVENTOS] ERROR: El bot no tiene permiso 'Gestionar eventos' en %s", guild.name)
-            channel_id = get_eventos_channel_id()
-            channel = guild.get_channel(channel_id) if channel_id else None
-            if channel is None:
-                log.warning("[EVENTOS] EVENTOS_CHANNEL_ID no configurado: !evento funciona en cualquier canal")
-            else:
-                log.info("[EVENTOS] Canal de eventos: #%s", channel.name)
+            channel = settings.channel(guild, "canal_eventos")
+            if channel:
+                log.info("[EVENTOS] %s: canal #%s", guild.name, channel.name)
 
 
 async def setup(bot: commands.Bot):

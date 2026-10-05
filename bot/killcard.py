@@ -113,7 +113,7 @@ def _player_header(p: dict) -> tuple[str, str]:
     return p["Name"], f"{guild} · IP {round(p.get('AverageItemPower') or 0)}"
 
 
-async def render_card(event: dict) -> io.BytesIO:
+async def render_card(event: dict, server: str = "americas") -> io.BytesIO:
     """Dibuja la tarjeta de la kill y la devuelve como JPEG en memoria."""
     killer, victim = event["Killer"], event["Victim"]
     inventory = [i for i in victim.get("Inventory") or [] if i]
@@ -135,9 +135,9 @@ async def render_card(event: dict) -> io.BytesIO:
         tasks |= {("i", n): _icon(session, it, INV_ICON) for n, it in enumerate(inventory)}
         keys = list(tasks)
         icons = dict(zip(keys, await asyncio.gather(*tasks.values())))
-    victim_build = await prices.value_of(prices.equipment_items(victim))
-    killer_build = await prices.value_of(prices.equipment_items(killer))
-    inv_value = await prices.value_of(prices.inventory_items(victim))
+    victim_build = await prices.value_of(prices.equipment_items(victim), server)
+    killer_build = await prices.value_of(prices.equipment_items(killer), server)
+    inv_value = await prices.value_of(prices.inventory_items(victim), server)
 
     card = _background(height)
     draw = ImageDraw.Draw(card)

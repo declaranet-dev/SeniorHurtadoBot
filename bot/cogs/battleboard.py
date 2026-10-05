@@ -7,15 +7,8 @@ from datetime import datetime, timedelta, timezone
 import discord
 from discord.ext import commands, tasks
 
-from bot import albion
-from bot.config import (
-    BATTLE_INTERVAL_SECONDS,
-    BATTLE_SETTLE_MINUTES,
-    BATTLES_FILE,
-    get_battle_min_players,
-    get_battleboard_channel_id,
-    get_killbot_guild_id,
-)
+from bot import albion, settings
+from bot.config import BATTLE_INTERVAL_SECONDS, BATTLE_SETTLE_MINUTES, BATTLES_FILE
 
 log = logging.getLogger("seniorhurtadobot.battleboard")
 
@@ -23,15 +16,20 @@ BATTLE_URL = "https://albiononline.com/killboard/battles/{}"
 MAX_REMEMBERED = 300  # ids de batallas publicadas que se recuerdan
 
 
-def load_state() -> dict | None:
+def load_states() -> dict:
+    """Batallas ya publicadas, por servidor de Discord: {"servidores": {id: [ids]}}"""
     if BATTLES_FILE.exists():
-        return json.loads(BATTLES_FILE.read_text(encoding="utf-8"))
-    return None
+        data = json.loads(BATTLES_FILE.read_text(encoding="utf-8"))
+        data.setdefault("servidores", {})  # el formato viejo lo migra settings.migrate_from_env
+        return data
+    return {"servidores": {}}
 
 
-def save_state(posted: list[int]):
+def save_states(data: dict):
+    for guild_id, posted in data["servidores"].items():
+        data["servidores"][guild_id] = posted[-MAX_REMEMBERED:]
     BATTLES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    BATTLES_FILE.write_text(json.dumps({"publicadas": posted[-MAX_REMEMBERED:]}), encoding="utf-8")
+    BATTLES_FILE.write_text(json.dumps(data), encoding="utf-8")
 
 
 def short(n: float) -> str:
@@ -110,55 +108,62 @@ class BattleBoard(commands.Cog):
         self.poll.change_interval(seconds=BATTLE_INTERVAL_SECONDS)
 
     async def cog_load(self):
-        if not get_killbot_guild_id() or not get_battleboard_channel_id():
-            log.warning("[BATTLE] Falta KILLBOT_GUILD_ID o BATTLEBOARD_CHANNEL_ID en .env: battle board apagado")
-            return
         self.poll.start()
 
     async def cog_unload(self):
         self.poll.cancel()
 
+    def _active_servers(self) -> list[tuple[discord.Guild, dict, discord.TextChannel]]:
+        out = []
+        for guild in self.bot.guilds:
+            config = settings.get(guild.id)
+            channel = settings.channel(guild, "canal_batallas")
+            if config["gremio_id"] and channel:
+                out.append((guild, config, channel))
+        return out
+
     @tasks.loop(seconds=180)
     async def poll(self):
-        guild_id = get_killbot_guild_id()
-        channel = self.bot.get_channel(get_battleboard_channel_id())
-        if channel is None:
-            log.error("[BATTLE] ERROR: No encontré el canal BATTLEBOARD_CHANNEL_ID")
-            return
-        try:
-            battles = await albion.get_guild_battles(guild_id)
-        except albion.AlbionAPIError as e:
-            log.warning("[BATTLE] La API de Albion no responde: %s", e)
-            return
+        servers = self._active_servers()
+        battles_by_guild: dict[str, list[dict]] = {}
+        for albion_guild, region in {(c["gremio_id"], c["servidor_albion"]) for _, c, _ in servers}:
+            try:
+                battles_by_guild[albion_guild] = await albion.get_guild_battles(albion_guild, server=region)
+            except albion.AlbionAPIError as e:
+                log.warning("[BATTLE] La API de Albion no responde (gremio %s): %s", albion_guild, e)
 
-        state = load_state()
-        if state is None:
-            # Primera vez: no se publica el historial, solo lo nuevo desde ahora.
-            save_state([b["id"] for b in battles])
-            log.info("[BATTLE] Iniciado; se publicarán las batallas nuevas desde ahora")
-            return
-
-        posted = state["publicadas"]
-        min_players = get_battle_min_players()
-        for battle in sorted(battles, key=lambda b: b["id"]):
-            if battle["id"] in posted or not is_finished(battle):
-                continue  # las que siguen en curso se revisan en la próxima vuelta
-            if len(battle["players"]) >= min_players:
-                try:
-                    await channel.send(embed=build_embed(battle, guild_id))
-                except discord.HTTPException as e:
-                    log.error("[BATTLE] ERROR: No se pudo publicar la batalla %s: %s", battle["id"], e)
-                    break
-                log.info("[BATTLE] Publicada %s (%d jugadores)", battle["id"], len(battle["players"]))
-            posted.append(battle["id"])
-            save_state(posted)
+        data = load_states()
+        for guild, config, channel in servers:
+            battles = battles_by_guild.get(config["gremio_id"])
+            if battles is None:
+                continue
+            posted = data["servidores"].get(str(guild.id))
+            if posted is None:
+                # Servidor nuevo: no se publica el historial, solo lo nuevo desde ahora.
+                data["servidores"][str(guild.id)] = [b["id"] for b in battles]
+                save_states(data)
+                log.info("[BATTLE] %s: iniciado; se publicarán las batallas nuevas", guild.name)
+                continue
+            for battle in sorted(battles, key=lambda b: b["id"]):
+                if battle["id"] in posted or not is_finished(battle):
+                    continue  # las que siguen en curso se revisan en la próxima vuelta
+                if len(battle["players"]) >= config["batalla_min_jugadores"]:
+                    try:
+                        await channel.send(embed=build_embed(battle, config["gremio_id"]))
+                    except discord.HTTPException as e:
+                        log.error("[BATTLE] %s: no se pudo publicar %s: %s", guild.name, battle["id"], e)
+                        break
+                    log.info("[BATTLE] %s: publicada %s (%d jugadores)", guild.name, battle["id"],
+                             len(battle["players"]))
+                posted.append(battle["id"])
+                save_states(data)
 
     @poll.before_loop
     async def before_poll(self):
         await self.bot.wait_until_ready()
-        channel = self.bot.get_channel(get_battleboard_channel_id())
-        log.info("[BATTLE] Siguiendo batallas de %s+ jugadores en #%s cada %ss",
-                 get_battle_min_players(), getattr(channel, "name", "?"), BATTLE_INTERVAL_SECONDS)
+        for guild, config, channel in self._active_servers():
+            log.info("[BATTLE] %s: batallas de %s+ jugadores en #%s", guild.name,
+                     config["batalla_min_jugadores"], channel.name)
 
 
 async def setup(bot: commands.Bot):

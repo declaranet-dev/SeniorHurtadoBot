@@ -13,6 +13,7 @@ log = logging.getLogger("seniorhurtadobot")
 # bot/cogs/ y añádelo a esta lista.
 EXTENSIONS = [
     "bot.cogs.general",
+    "bot.cogs.configuracion",
     "bot.cogs.welcome",
     "bot.cogs.registro",
     "bot.cogs.eventos",
@@ -60,18 +61,26 @@ class SeniorHurtadoBot(commands.Bot):
             return
         self._slash_synced = True
         for guild in self.guilds:
-            self.tree.copy_global_to(guild=guild)
-            try:
-                synced = await self.tree.sync(guild=guild)
-                log.info("Comandos / registrados en %s: %s",
-                         guild.name, ", ".join(c.name for c in synced))
-            except discord.Forbidden:
-                log.error(
-                    "No pude registrar comandos / en %s: vuelve a invitar al bot "
-                    "con el permiso 'applications.commands'.", guild.name,
-                )
-            except discord.HTTPException as e:
-                log.error("No pude registrar comandos / en %s: %s", guild.name, e)
+            await self._sync_guild(guild)
+
+    async def _sync_guild(self, guild: discord.Guild):
+        self.tree.copy_global_to(guild=guild)
+        try:
+            synced = await self.tree.sync(guild=guild)
+            log.info("Comandos / registrados en %s: %s",
+                     guild.name, ", ".join(c.name for c in synced))
+        except discord.Forbidden:
+            log.error(
+                "No pude registrar comandos / en %s: vuelve a invitar al bot "
+                "con el permiso 'applications.commands'.", guild.name,
+            )
+        except discord.HTTPException as e:
+            log.error("No pude registrar comandos / en %s: %s", guild.name, e)
+
+    async def on_guild_join(self, guild: discord.Guild):
+        log.info("Entré a un servidor nuevo: %s (id %s). Configúralo con /configuracion.",
+                 guild.name, guild.id)
+        await self._sync_guild(guild)
 
     async def on_command_error(self, ctx: commands.Context, error):
         if isinstance(error, commands.CommandNotFound):

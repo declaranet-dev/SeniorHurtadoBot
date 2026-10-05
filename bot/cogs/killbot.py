@@ -1,5 +1,6 @@
-"""Killbot: publica las kills y muertes del gremio en un canal de Discord."""
+"""Killbot: publica kills, muertes y gucci kills en cada servidor según su /configuracion."""
 
+import io
 import json
 import logging
 from datetime import datetime
@@ -7,18 +8,12 @@ from datetime import datetime
 import discord
 from discord.ext import commands, tasks
 
-from bot import albion, killcard
+from bot import albion, killcard, settings
 from bot.config import (
     KILLBOT_FILE,
     KILLBOT_GLOBAL_PAGES,
     KILLBOT_GUILD_FEED_EVERY,
-    GUCCI_MIN_FAME,
-    get_gucci_channel_id,
     KILLBOT_INTERVAL_SECONDS,
-    get_killbot_channel_id,
-    get_killbot_deaths_channel_id,
-    get_killbot_guild_id,
-    get_killbot_min_fame,
 )
 
 log = logging.getLogger("seniorhurtadobot.killbot")
@@ -30,19 +25,22 @@ ITEM_IMG = "https://render.albiononline.com/v1/item/{}.png"
 MAX_SEEN = 3000  # ids de eventos ya revisados que se recuerdan
 
 
-def load_state() -> dict | None:
-    """{"ultimo_evento": id al arrancar por primera vez, "vistos": [ids]}"""
-    if KILLBOT_FILE.exists():
-        state = json.loads(KILLBOT_FILE.read_text(encoding="utf-8"))
-        state.setdefault("vistos", [])
-        return state
-    return None
+def load_states() -> dict:
+    """Estado por servidor de Discord:
+    {"servidores": {id: {"ultimo_evento", "vistos", "gucci_vistos"}}}"""
+    if not KILLBOT_FILE.exists():
+        return {"servidores": {}}
+    data = json.loads(KILLBOT_FILE.read_text(encoding="utf-8"))
+    data.setdefault("servidores", {})  # el formato viejo lo migra settings.migrate_from_env
+    return data
 
 
-def save_state(state: dict):
-    state["vistos"] = state["vistos"][-MAX_SEEN:]
+def save_states(data: dict):
+    for state in data["servidores"].values():
+        state["vistos"] = state["vistos"][-MAX_SEEN:]
+        state["gucci_vistos"] = state["gucci_vistos"][-MAX_SEEN:]
     KILLBOT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    KILLBOT_FILE.write_text(json.dumps(state), encoding="utf-8")
+    KILLBOT_FILE.write_text(json.dumps(data), encoding="utf-8")
 
 
 def fmt(n: float) -> str:
@@ -89,17 +87,25 @@ def build_embed(event: dict, guild_id: str) -> discord.Embed:
     return embed
 
 
-async def send_with_card(channel, embed: discord.Embed, event: dict):
+_cards: dict[int, bytes] = {}  # tarjetas ya dibujadas (se reusan entre servidores)
+
+
+async def send_with_card(channel, embed: discord.Embed, event: dict, server: str = "americas"):
     """Envía el mensaje con la tarjeta de la kill; si la imagen falla, sin ella."""
-    try:
-        image = await killcard.render_card(event)
-    except Exception:  # la tarjeta es un extra: nunca debe frenar el killbot
-        log.exception("[KILLBOT] No se pudo dibujar la tarjeta de %s", event["EventId"])
-        await channel.send(embed=embed)
-        return
+    image = _cards.get(event["EventId"])
+    if image is None:
+        try:
+            image = (await killcard.render_card(event, server)).getvalue()
+        except Exception:  # la tarjeta es un extra: nunca debe frenar el killbot
+            log.exception("[KILLBOT] No se pudo dibujar la tarjeta de %s", event["EventId"])
+            await channel.send(embed=embed)
+            return
+        if len(_cards) > 50:
+            _cards.clear()
+        _cards[event["EventId"]] = image
     embed.set_thumbnail(url=None)  # la tarjeta ya muestra el equipo completo
     embed.set_image(url="attachment://kill.jpg")
-    await channel.send(embed=embed, file=discord.File(image, filename="kill.jpg"))
+    await channel.send(embed=embed, file=discord.File(io.BytesIO(image), filename="kill.jpg"))
 
 
 class Killbot(commands.Cog):
@@ -109,107 +115,130 @@ class Killbot(commands.Cog):
         self.poll.change_interval(seconds=KILLBOT_INTERVAL_SECONDS)
 
     async def cog_load(self):
-        if not get_killbot_guild_id() or not get_killbot_channel_id():
-            log.warning("[KILLBOT] Falta KILLBOT_GUILD_ID o KILLBOT_CHANNEL_ID en .env: killbot apagado")
-            return
         self.poll.start()
 
     async def cog_unload(self):
         self.poll.cancel()
 
+    def _active_servers(self) -> list[tuple[discord.Guild, dict]]:
+        """Servidores de Discord con killbot o gucci kills configurados."""
+        out = []
+        for guild in self.bot.guilds:
+            config = settings.get(guild.id)
+            tracks_guild = config["gremio_id"] and (config["canal_kills"] or config["canal_muertes"])
+            if tracks_guild or config["canal_gucci"]:
+                out.append((guild, config))
+        return out
+
     @tasks.loop(seconds=15)
     async def poll(self):
-        guild_id = get_killbot_guild_id()
-        kills_channel = self.bot.get_channel(get_killbot_channel_id())
-        # Si no hay canal de muertes configurado, las muertes van al de kills.
-        deaths_channel = self.bot.get_channel(
-            get_killbot_deaths_channel_id() or get_killbot_channel_id())
-        if kills_channel is None or deaths_channel is None:
-            log.error("[KILLBOT] ERROR: No encontré el canal de kills o de muertes")
+        servers = self._active_servers()
+        if not servers:
             return
 
-        # Fuente principal: el feed general de Albion (al día) filtrado al gremio.
-        # Respaldo: la lista del gremio, que la API sirve con horas de retraso,
-        # para no perder lo que se escape del feed general.
-        events = {}
-        gucci = {}  # kills de todo Albion con mucha fama
-        try:
-            for event in await albion.get_recent_events(KILLBOT_GLOBAL_PAGES):
-                if guild_id in (event["Killer"].get("GuildId"), event["Victim"].get("GuildId")):
-                    events[event["EventId"]] = event
-                if (event.get("TotalVictimKillFame") or 0) >= GUCCI_MIN_FAME:
-                    gucci[event["EventId"]] = event
-            self._ticks += 1
-            if self._ticks % KILLBOT_GUILD_FEED_EVERY == 1:
-                for event in await albion.get_guild_events(guild_id):
-                    events[event["EventId"]] = event
-        except albion.AlbionAPIError as e:
-            log.warning("[KILLBOT] La API de Albion no responde: %s", e)
-            if not events and not gucci:
-                return
-
-        state = load_state()
-        if state is None:
-            # Primera vez: no se publica el historial, solo lo nuevo desde ahora.
-            state = {"ultimo_evento": max([*events, *gucci], default=0), "vistos": sorted(events)}
-            save_state(state)
-            log.info("[KILLBOT] Iniciado; se publicarán las kills nuevas desde ahora")
-            return
-
-        await self._post_gucci_kills(gucci, state)
-
-        seen = set(state["vistos"])
-        new = [events[i] for i in sorted(events)
-               if i > state["ultimo_evento"] and i not in seen]
-        min_fame = get_killbot_min_fame()
-        for event in new:
-            if (event.get("TotalVictimKillFame") or 0) >= min_fame:
-                is_kill = event["Killer"].get("GuildId") == guild_id
-                channel = kills_channel if is_kill else deaths_channel
+        # Fuente principal: el feed general de cada servidor de Albion (al día).
+        # Respaldo: la lista de cada gremio, que la API sirve con horas de
+        # retraso, para no perder lo que se escape del feed general.
+        self._ticks += 1
+        feeds: dict[str, list[dict]] = {}
+        guild_feeds: dict[str, list[dict]] = {}
+        for region in {config["servidor_albion"] for _, config in servers}:
+            try:
+                feeds[region] = await albion.get_recent_events(KILLBOT_GLOBAL_PAGES, region)
+            except albion.AlbionAPIError as e:
+                log.warning("[KILLBOT] La API de Albion (%s) no responde: %s", region, e)
+        if self._ticks % KILLBOT_GUILD_FEED_EVERY == 1:
+            for albion_guild, region in {(c["gremio_id"], c["servidor_albion"]) for _, c in servers if c["gremio_id"]}:
                 try:
-                    await send_with_card(channel, build_embed(event, guild_id), event)
-                except discord.HTTPException as e:
-                    log.error("[KILLBOT] ERROR: No se pudo publicar el evento %s: %s", event["EventId"], e)
-                    break  # se reintenta en la siguiente vuelta
-                log.info("[KILLBOT] Publicado %s: %s -> %s (hora del juego %s)", event["EventId"],
-                         event["Killer"]["Name"], event["Victim"]["Name"], event["TimeStamp"][11:19])
-            state["vistos"].append(event["EventId"])
-            save_state(state)
+                    guild_feeds[albion_guild] = await albion.get_guild_events(albion_guild, server=region)
+                except albion.AlbionAPIError as e:
+                    log.warning("[KILLBOT] Lista del gremio %s no disponible: %s", albion_guild, e)
 
-    async def _post_gucci_kills(self, gucci: dict, state: dict):
-        """Kills de todo Albion con mucha fama al canal de gucci kills."""
-        gucci_id = get_gucci_channel_id()
-        channel = self.bot.get_channel(gucci_id) if gucci_id else None
-        if channel is None:
+        data = load_states()
+        for guild, config in servers:
+            feed = feeds.get(config["servidor_albion"])
+            if feed is None:
+                continue
+            state = data["servidores"].get(str(guild.id))
+            if state is None:
+                # Servidor nuevo: no se publica el historial, solo lo nuevo.
+                data["servidores"][str(guild.id)] = {
+                    "ultimo_evento": max((e["EventId"] for e in feed), default=0),
+                    "vistos": [], "gucci_vistos": []}
+                save_states(data)
+                log.info("[KILLBOT] %s: iniciado; se publicarán las kills nuevas desde ahora", guild.name)
+                continue
+            state.setdefault("vistos", [])
+            state.setdefault("gucci_vistos", [])
+            await self._post_gucci_kills(guild, config, feed, state, data)
+            await self._post_guild_kills(guild, config, feed, guild_feeds, state, data)
+
+    async def _post_guild_kills(self, guild, config, feed, guild_feeds, state, data):
+        albion_guild = config["gremio_id"]
+        kills_channel = settings.channel(guild, "canal_kills")
+        # Si no hay canal de muertes configurado, las muertes van al de kills.
+        deaths_channel = settings.channel(guild, "canal_muertes") or kills_channel
+        if not albion_guild or (kills_channel is None and deaths_channel is None):
             return
-        seen = set(state.setdefault("gucci_vistos", []))
-        for event_id in sorted(gucci):
+        events = {e["EventId"]: e for e in feed
+                  if albion_guild in (e["Killer"].get("GuildId"), e["Victim"].get("GuildId"))}
+        for e in guild_feeds.get(albion_guild, []):
+            events[e["EventId"]] = e
+        seen = set(state["vistos"])
+        for event_id in sorted(events):
             if event_id <= state["ultimo_evento"] or event_id in seen:
                 continue
-            event = gucci[event_id]
+            event = events[event_id]
+            is_kill = event["Killer"].get("GuildId") == albion_guild
+            channel = kills_channel if is_kill else deaths_channel
+            if channel is not None:
+                try:
+                    await send_with_card(channel, build_embed(event, albion_guild), event,
+                                         config["servidor_albion"])
+                except discord.HTTPException as e:
+                    log.error("[KILLBOT] %s: no se pudo publicar %s: %s", guild.name, event_id, e)
+                    return  # se reintenta en la siguiente vuelta
+                log.info("[KILLBOT] %s: publicado %s: %s -> %s (hora del juego %s)", guild.name, event_id,
+                         event["Killer"]["Name"], event["Victim"]["Name"], event["TimeStamp"][11:19])
+            state["vistos"].append(event_id)
+            save_states(data)
+
+    async def _post_gucci_kills(self, guild, config, feed, state, data):
+        """Kills de todo Albion con mucha fama al canal de gucci kills."""
+        channel = settings.channel(guild, "canal_gucci")
+        if channel is None:
+            return
+        seen = set(state["gucci_vistos"])
+        for event in sorted(feed, key=lambda e: e["EventId"]):
+            event_id = event["EventId"]
+            if (event.get("TotalVictimKillFame") or 0) < config["gucci_min_fama"]:
+                continue
+            if event_id <= state["ultimo_evento"] or event_id in seen:
+                continue
             # Se muestra desde el lado del asesino (verde, arma del asesino).
             embed = build_embed(event, event["Killer"].get("GuildId"))
             embed.title = f"💵 GUCCI KILL · {embed.title}"
             embed.color = discord.Color.gold()
             embed.set_footer(text="Gucci kill de Albion")
             try:
-                await send_with_card(channel, embed, event)
+                await send_with_card(channel, embed, event, config["servidor_albion"])
             except discord.HTTPException as e:
-                log.error("[KILLBOT] ERROR: No se pudo publicar la gucci kill %s: %s", event_id, e)
+                log.error("[KILLBOT] %s: no se pudo publicar la gucci kill %s: %s", guild.name, event_id, e)
                 return  # se reintenta en la siguiente vuelta
-            log.info("[KILLBOT] Gucci kill %s: %s -> %s (%s de fama)", event_id,
+            log.info("[KILLBOT] %s: gucci kill %s: %s -> %s (%s de fama)", guild.name, event_id,
                      event["Killer"]["Name"], event["Victim"]["Name"], event["TotalVictimKillFame"])
-            state["gucci_vistos"] = (state["gucci_vistos"] + [event_id])[-MAX_SEEN:]
-            save_state(state)
+            state["gucci_vistos"].append(event_id)
+            save_states(data)
 
     @poll.before_loop
     async def before_poll(self):
         await self.bot.wait_until_ready()
-        kills = self.bot.get_channel(get_killbot_channel_id())
-        deaths = self.bot.get_channel(get_killbot_deaths_channel_id() or get_killbot_channel_id())
-        log.info("[KILLBOT] Siguiendo al gremio %s: kills en #%s, muertes en #%s, cada %ss",
-                 get_killbot_guild_id(), getattr(kills, "name", "?"),
-                 getattr(deaths, "name", "?"), KILLBOT_INTERVAL_SECONDS)
+        for guild, config in self._active_servers():
+            log.info("[KILLBOT] %s: gremio %s, kills #%s, muertes #%s, gucci #%s", guild.name,
+                     config["gremio_nombre"] or "-",
+                     getattr(settings.channel(guild, "canal_kills"), "name", "-"),
+                     getattr(settings.channel(guild, "canal_muertes"), "name", "-"),
+                     getattr(settings.channel(guild, "canal_gucci"), "name", "-"))
 
 
 async def setup(bot: commands.Bot):
