@@ -1,0 +1,18 @@
+# Secretos: nunca subir el token
+.env
+.env.*
+
+# Entorno virtual y caché de Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Logs
+*.log
+
+# Plantilla sin secretos (sí se sube)
+!.env.example
+
+# Datos de jugadores registrados
+data/
