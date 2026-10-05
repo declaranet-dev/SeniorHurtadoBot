@@ -7,7 +7,7 @@ from datetime import datetime
 import discord
 from discord.ext import commands, tasks
 
-from bot import albion
+from bot import albion, killcard
 from bot.config import (
     KILLBOT_FILE,
     KILLBOT_GLOBAL_PAGES,
@@ -89,6 +89,19 @@ def build_embed(event: dict, guild_id: str) -> discord.Embed:
     return embed
 
 
+async def send_with_card(channel, embed: discord.Embed, event: dict):
+    """Envía el mensaje con la tarjeta de la kill; si la imagen falla, sin ella."""
+    try:
+        image = await killcard.render_card(event)
+    except Exception:  # la tarjeta es un extra: nunca debe frenar el killbot
+        log.exception("[KILLBOT] No se pudo dibujar la tarjeta de %s", event["EventId"])
+        await channel.send(embed=embed)
+        return
+    embed.set_thumbnail(url=None)  # la tarjeta ya muestra el equipo completo
+    embed.set_image(url="attachment://kill.jpg")
+    await channel.send(embed=embed, file=discord.File(image, filename="kill.jpg"))
+
+
 class Killbot(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -154,7 +167,7 @@ class Killbot(commands.Cog):
                 is_kill = event["Killer"].get("GuildId") == guild_id
                 channel = kills_channel if is_kill else deaths_channel
                 try:
-                    await channel.send(embed=build_embed(event, guild_id))
+                    await send_with_card(channel, build_embed(event, guild_id), event)
                 except discord.HTTPException as e:
                     log.error("[KILLBOT] ERROR: No se pudo publicar el evento %s: %s", event["EventId"], e)
                     break  # se reintenta en la siguiente vuelta
@@ -180,7 +193,7 @@ class Killbot(commands.Cog):
             embed.color = discord.Color.gold()
             embed.set_footer(text="Gucci kill de Albion")
             try:
-                await channel.send(embed=embed)
+                await send_with_card(channel, embed, event)
             except discord.HTTPException as e:
                 log.error("[KILLBOT] ERROR: No se pudo publicar la gucci kill %s: %s", event_id, e)
                 return  # se reintenta en la siguiente vuelta

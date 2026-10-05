@@ -33,7 +33,7 @@ def base_url() -> str:
 
 async def _get_json(path: str, params: dict) -> dict:
     url = base_url() + path
-    timeout = aiohttp.ClientTimeout(total=10)
+    timeout = aiohttp.ClientTimeout(total=30)  # las consultas por gremio a veces tardan
     last_error: Exception | None = None
     # La API de Albion falla a ratos: se reintenta una vez.
     for attempt in range(2):
