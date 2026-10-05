@@ -2,9 +2,8 @@
 
 Pasos del creador (mensaje que solo ve él):
   1. Tipo de contenido (ZvZ, Avaloniana, ...)
-  2. Horario y lugar de salida (formulario)
-  3. Cantidad de jugadores (según el tipo)
-  4. Rol de cada lugar ("Asignado por Caller" por defecto)
+  2. Formulario: horario, lugar de salida y cantidad de jugadores (1 a 100)
+  3. Rol de cada lugar ("Asignado por Caller" por defecto)
 Después se publica el anuncio y los miembros eligen su rol en una lista.
 """
 
@@ -23,6 +22,7 @@ from bot.config import (
     EVENT_CONTENT,
     EVENT_DELETE_AFTER_HOURS,
     EVENT_DURATION_HOURS,
+    EVENT_MAX_PLAYERS,
     EVENT_ROLES,
     EVENTOS_FILE,
     SLOT_CALLER_ROLE,
@@ -115,7 +115,7 @@ def build_slot_embed(data: dict) -> discord.Embed:
     ts = int(start.timestamp())
     slots, signups = data["lugares"], data["anotados"]
     taken = {idx: uid for uid, idx in signups.items()}
-    emoji = EVENT_CONTENT.get(data["tipo"], ("📌",))[0]
+    emoji = EVENT_CONTENT.get(data["tipo"], "📌")
     embed = discord.Embed(title=f"{emoji} {data['nombre']}", url=data["url"], color=discord.Color.gold())
     embed.add_field(name="🕛 Hora", value=f"{start:%H:%M} UTC\n<t:{ts}:F> (tu hora)\n<t:{ts}:R>")
     embed.add_field(name="📍 Salida", value=data["lugar"])
@@ -128,7 +128,11 @@ def build_slot_embed(data: dict) -> discord.Embed:
         last = min(first + SLOTS_PER_FIELD, len(slots))
         embed.add_field(name=f"Lugares {first + 1}-{last}", value="\n".join(lines), inline=False)
     if data["info"]:
-        embed.add_field(name="ℹ️ Información extra", value=data["info"][:1024], inline=False)
+        # Con muchos lugares el mensaje se acerca al límite de Discord (6000).
+        room = max(0, 5900 - len(embed) - 60)
+        info = data["info"] if len(data["info"]) <= room else data["info"][:max(0, room - 1)] + "…"
+        if info:
+            embed.add_field(name="ℹ️ Información extra", value=info[:1024], inline=False)
     embed.set_footer(text=f"{data['tipo']} · Organiza: {data['organiza']}")
     return embed
 
@@ -201,7 +205,7 @@ class SlotSignupView(discord.ui.View):
 
 # ---------------------------------------------------------------- asistente
 
-class ScheduleModal(discord.ui.Modal, title="Paso 2 · Horario y salida"):
+class ScheduleModal(discord.ui.Modal, title="Paso 2 · Horario, salida y jugadores"):
     def __init__(self, wizard: "EventWizard"):
         super().__init__()
         self.wizard = wizard
@@ -209,13 +213,16 @@ class ScheduleModal(discord.ui.Modal, title="Paso 2 · Horario y salida"):
                                          default=wizard.hour_text or None)
         self.lugar = discord.ui.TextInput(label="Lugar de salida", max_length=100,
                                           placeholder="Avalanche Incline", default=wizard.lugar or None)
+        self.cantidad = discord.ui.TextInput(label=f"Cantidad de jugadores (1 a {EVENT_MAX_PLAYERS})",
+                                             max_length=3, placeholder="20",
+                                             default=str(len(wizard.slots)) if wizard.slots else None)
         self.nombre = discord.ui.TextInput(label="Nombre del evento (opcional)", required=False,
                                            max_length=80, placeholder=wizard.tipo,
                                            default=wizard.nombre or None)
         self.info = discord.ui.TextInput(label="Información extra (opcional)", required=False,
                                          style=discord.TextStyle.paragraph, max_length=600,
                                          default=wizard.info or None)
-        for item in (self.hora, self.lugar, self.nombre, self.info):
+        for item in (self.hora, self.lugar, self.cantidad, self.nombre, self.info):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -225,7 +232,15 @@ class ScheduleModal(discord.ui.Modal, title="Paso 2 · Horario y salida"):
                 f"❌ El horario **{self.hora.value}** no es válido. Usa 00, 8 o 20:30 (hora UTC).",
                 ephemeral=True)
             return
+        size = self.cantidad.value.strip()
+        if not size.isdigit() or not 1 <= int(size) <= EVENT_MAX_PLAYERS:
+            await interaction.response.send_message(
+                f"❌ La cantidad de jugadores debe ser un número de 1 a {EVENT_MAX_PLAYERS}.", ephemeral=True)
+            return
         w = self.wizard
+        # Se conservan los roles ya elegidos; los lugares nuevos quedan para el caller.
+        w.slots = (w.slots + [SLOT_CALLER_ROLE] * int(size))[:int(size)]
+        w.page = 0
         w.start, w.hour_text = start, self.hora.value.strip()
         w.lugar = self.lugar.value.strip()
         w.nombre = self.nombre.value.strip()
@@ -254,13 +269,12 @@ class EventWizard(discord.ui.View):
     # --- pintar cada paso
 
     def embed(self) -> discord.Embed:
-        titles = {1: "Paso 1 · Tipo de contenido", 3: "Paso 3 · Cantidad de jugadores",
-                  4: "Paso 4 · Roles de cada lugar"}
+        titles = {1: "Paso 1 · Tipo de contenido", 3: "Paso 3 · Roles de cada lugar"}
         embed = discord.Embed(title=f"📅 Crear evento · {titles.get(self.step, '')}",
                               color=discord.Color.green())
         lines = []
         if self.tipo:
-            lines.append(f"**Tipo:** {EVENT_CONTENT[self.tipo][0]} {self.tipo}")
+            lines.append(f"**Tipo:** {EVENT_CONTENT[self.tipo]} {self.tipo}")
         if self.start:
             ts = int(self.start.timestamp())
             lines.append(f"**Horario:** {self.start:%H:%M} UTC (<t:{ts}:F>, <t:{ts}:R>)")
@@ -269,7 +283,7 @@ class EventWizard(discord.ui.View):
                 lines.append(f"**Nombre:** {self.nombre}")
         if self.slots:
             lines.append(f"**Jugadores:** {len(self.slots)} ({role_counts(self.slots)})")
-        if self.step == 4:
+        if self.step == 3:
             pages = (len(self.slots) + SLOTS_PER_PAGE - 1) // SLOTS_PER_PAGE
             lines.append(f"\nElige el rol de cada lugar. Página {self.page + 1} de {pages}. "
                          f"Los que no cambies quedan como **{SLOT_CALLER_ROLE}**.")
@@ -281,21 +295,12 @@ class EventWizard(discord.ui.View):
         if self.step == 1:
             select = discord.ui.Select(placeholder="Tipo de contenido", options=[
                 discord.SelectOption(label=t, emoji=e, default=t == self.tipo)
-                for t, (e, _) in EVENT_CONTENT.items()])
+                for t, e in EVENT_CONTENT.items()])
             select.callback = self._on_type
             self.add_item(select)
-            self._button("Siguiente: horario y salida", "▶️", self._open_schedule, row=1,
+            self._button("Siguiente: horario, salida y jugadores", "▶️", self._open_schedule, row=1,
                          disabled=self.tipo is None)
         elif self.step == 3:
-            sizes = EVENT_CONTENT[self.tipo][1]
-            select = discord.ui.Select(placeholder="¿Cuántos jugadores?", options=[
-                discord.SelectOption(label=f"{n} jugadores", value=str(n), default=n == len(self.slots))
-                for n in sizes][:25])
-            select.callback = self._on_size
-            self.add_item(select)
-            self._button("Atrás", "◀️", self._back_to_schedule, row=1, style=discord.ButtonStyle.secondary)
-            self._button("Siguiente: roles", "▶️", self._to_roles, row=1, disabled=not self.slots)
-        elif self.step == 4:
             first = self.page * SLOTS_PER_PAGE
             for row, idx in enumerate(range(first, min(first + SLOTS_PER_PAGE, len(self.slots)))):
                 select = discord.ui.Select(row=row, placeholder=f"Jugador {idx + 1}", options=[
@@ -309,7 +314,8 @@ class EventWizard(discord.ui.View):
                          disabled=self.page == 0)
             self._button("Siguiente", "▶️", self._next_page, row=4, style=discord.ButtonStyle.secondary,
                          disabled=self.page >= pages - 1)
-            self._button("Cantidad", "🔢", self._back_to_size, row=4, style=discord.ButtonStyle.secondary)
+            self._button("Cambiar horario o cantidad", "✏️", self._open_schedule, row=4,
+                         style=discord.ButtonStyle.secondary)
             self._button("Publicar evento", "✅", self._publish, row=4)
 
     def _button(self, label, emoji, callback, row, disabled=False, style=discord.ButtonStyle.success):
@@ -328,29 +334,10 @@ class EventWizard(discord.ui.View):
 
     async def _on_type(self, interaction: discord.Interaction):
         self.tipo = interaction.data["values"][0]
-        self.slots = []  # cada tipo tiene sus cantidades
         await self.refresh(interaction)
 
     async def _open_schedule(self, interaction: discord.Interaction):
         await interaction.response.send_modal(ScheduleModal(self))
-
-    async def _back_to_schedule(self, interaction: discord.Interaction):
-        self.step = 1
-        await self.refresh(interaction)
-
-    async def _on_size(self, interaction: discord.Interaction):
-        size = int(interaction.data["values"][0])
-        # Se conservan los roles ya elegidos; los lugares nuevos quedan para el caller.
-        self.slots = (self.slots + [SLOT_CALLER_ROLE] * size)[:size]
-        await self.refresh(interaction)
-
-    async def _to_roles(self, interaction: discord.Interaction):
-        self.step, self.page = 4, 0
-        await self.refresh(interaction)
-
-    async def _back_to_size(self, interaction: discord.Interaction):
-        self.step = 3
-        await self.refresh(interaction)
 
     def _slot_callback(self, idx: int):
         async def callback(interaction: discord.Interaction):
@@ -371,7 +358,7 @@ class EventWizard(discord.ui.View):
         await interaction.response.edit_message(content="⏳ Publicando el evento...", embed=self.embed(),
                                                 view=None)
         description = "\n".join([
-            f"{EVENT_CONTENT[self.tipo][0]} {self.tipo}",
+            f"{EVENT_CONTENT[self.tipo]} {self.tipo}",
             f"📍 Salida: {self.lugar}",
             f"👥 {len(self.slots)} jugadores: {role_counts(self.slots)}",
             *( [f"ℹ️ {self.info}"] if self.info else [] ),

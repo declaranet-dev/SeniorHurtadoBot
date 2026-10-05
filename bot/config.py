@@ -22,19 +22,20 @@ REGISTROS_FILE = ROOT_DIR / "data" / "registros.json"
 EVENT_DURATION_HOURS = 2  # Discord exige una hora de fin en eventos externos
 EVENT_DELETE_AFTER_HOURS = 8  # el anuncio se borra estas horas después de la hora del evento
 EVENTOS_FILE = ROOT_DIR / "data" / "eventos.json"
-# Tipos de contenido: emoji y cantidades de jugadores que puede elegir el creador.
+# Tipos de contenido y su emoji.
 EVENT_CONTENT = {
-    "ZvZ": ("⚔️", [10, 20, 40, 80]),
-    "Avaloniana": ("🏛️", list(range(10, 21))),
-    "Buffo Avalon": ("✨", list(range(5, 21))),
-    "Maz Azules": ("🔵", list(range(1, 6))),
-    "Cofres Dorados": ("💰", list(range(1, 8))),
-    "Gankeo": ("🗡️", [8, 9]),
-    "HCE": ("💀", [5]),
-    "OpenWorld": ("🌍", list(range(10, 16))),
-    "Dragones": ("🐉", list(range(10, 21))),
-    "Otro": ("📌", [5, 10, 15, 20, 25, 30, 40, 50, 80]),
+    "ZvZ": "⚔️",
+    "Avaloniana": "🏛️",
+    "Buffo Avalon": "✨",
+    "Maz Azules": "🔵",
+    "Cofres Dorados": "💰",
+    "Gankeo": "🗡️",
+    "HCE": "💀",
+    "OpenWorld": "🌍",
+    "Dragones": "🐉",
+    "Otro": "📌",
 }
+EVENT_MAX_PLAYERS = 100  # el creador elige de 1 a este número de jugadores
 SLOT_CALLER_ROLE = "Asignado por Caller"  # rol por defecto de cada lugar
 EVENT_ROLES = {  # roles que se pueden poner en cada lugar, con su emoji
     "Tank": "🛡️",
