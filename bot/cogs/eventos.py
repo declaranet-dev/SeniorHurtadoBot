@@ -8,10 +8,10 @@ from datetime import datetime, timedelta, timezone
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from bot import settings
-from bot.config import EVENT_DURATION_HOURS, EVENT_ROLES, EVENTOS_FILE
+from bot.config import EVENT_DELETE_AFTER_HOURS, EVENT_DURATION_HOURS, EVENT_ROLES, EVENTOS_FILE
 
 log = logging.getLogger("seniorhurtadobot.eventos")
 
@@ -247,6 +247,7 @@ class EventoModal(discord.ui.Modal, title="Crear evento"):
             "info": info,
             "organiza": interaction.user.display_name,
             "url": event.url,
+            "canal": interaction.channel_id,  # para borrar el anuncio después
             "anotados": {},  # id de usuario -> rol
         }
         message = await interaction.followup.send(
@@ -282,6 +283,41 @@ class Eventos(commands.Cog):
         self.bot = bot
         bot.add_view(EventoView())
         bot.add_dynamic_items(SignupButton)
+
+    async def cog_load(self):
+        self.cleanup.start()
+
+    async def cog_unload(self):
+        self.cleanup.cancel()
+
+    @tasks.loop(minutes=10)
+    async def cleanup(self):
+        """Borra los anuncios cuyo evento empezó hace más de EVENT_DELETE_AFTER_HOURS."""
+        limit = datetime.now(timezone.utc) - timedelta(hours=EVENT_DELETE_AFTER_HOURS)
+        async with _lock:
+            events = load_events()
+            expired = [mid for mid, data in events.items()
+                       if datetime.fromisoformat(data["inicio"]) <= limit]
+            for message_id in expired:
+                data = events[message_id]
+                channel = self.bot.get_channel(data.get("canal") or 0)
+                if channel is not None:
+                    try:
+                        await channel.get_partial_message(int(message_id)).delete()
+                        log.info("[EVENTOS] Anuncio de %r borrado (%sh después del evento)",
+                                 data["nombre"], EVENT_DELETE_AFTER_HOURS)
+                    except discord.NotFound:
+                        pass  # ya lo había borrado alguien
+                    except discord.HTTPException as e:
+                        log.error("[EVENTOS] No se pudo borrar el anuncio de %r: %s", data["nombre"], e)
+                        continue  # se reintenta en la próxima vuelta
+                del events[message_id]
+            if expired:
+                save_events(events)
+
+    @cleanup.before_loop
+    async def before_cleanup(self):
+        await self.bot.wait_until_ready()
 
     @commands.command(name="evento", aliases=["eventos"])
     @commands.guild_only()

@@ -20,6 +20,7 @@ REGISTROS_FILE = ROOT_DIR / "data" / "registros.json"
 
 # Eventos
 EVENT_DURATION_HOURS = 2  # Discord exige una hora de fin en eventos externos
+EVENT_DELETE_AFTER_HOURS = 8  # el anuncio se borra estas horas después de la hora del evento
 EVENTOS_FILE = ROOT_DIR / "data" / "eventos.json"
 EVENT_ROLES = {  # opciones de "Roles necesarios" y su emoji en los botones
     "Tank": "🛡️",
