@@ -71,6 +71,32 @@ class Welcome(commands.Cog):
                 log.error("[WELCOME] %s: %s", guild.name, problem)
             channel = settings.channel(guild, "canal_bienvenida")
             log.info("[WELCOME] %s: canal #%s", guild.name, getattr(channel, "name", "no encontrado"))
+            # Quien ya tiene rol de miembro u otro gremio no debe seguir con el de nuevos.
+            for member in guild.members:
+                await self._drop_new_role(member)
+
+    @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        """Si alguien recibe el rol de miembro o de otro gremio (por /registro o
+        a mano), se le quita el rol de nuevos."""
+        if before.roles != after.roles:
+            await self._drop_new_role(after)
+
+    async def _drop_new_role(self, member: discord.Member):
+        guild = member.guild
+        new_role = settings.role(guild, "rol_nuevo")
+        if new_role is None or new_role not in member.roles:
+            return
+        final_roles = [settings.role(guild, k) for k in ("rol_miembro", "rol_externo")]
+        if not any(r is not None and r in member.roles for r in final_roles):
+            return
+        if role_problem(guild, new_role):
+            return  # el bot no puede quitarlo (permisos o jerarquía); ya se avisa al arrancar
+        try:
+            await member.remove_roles(new_role, reason="Ya tiene rol de miembro u otro gremio")
+            log.info("[WELCOME] %s: quitado %s a %s", guild.name, new_role.name, member)
+        except discord.HTTPException as e:
+            log.error("[WELCOME] No se pudo quitar %s a %s: %s", new_role.name, member, e)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
