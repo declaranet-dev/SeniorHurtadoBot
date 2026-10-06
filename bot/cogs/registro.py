@@ -98,7 +98,7 @@ def same_guild(entered: str, official: str) -> bool:
     """El gremio escrito coincide con el oficial. También vale:
     - con artículo delante ("La Vecindad del Chavo")
     - una parte clara del nombre ("vecindad")
-    - las iniciales ("VDC" o "LVDC" para "Vecindad Del Chavo")"""
+    Las siglas (p. ej. "VDC") no se aceptan."""
     entered, official = normalize(entered), normalize(official)
     for article in ARTICLES:
         if entered.startswith(article):
@@ -107,11 +107,7 @@ def same_guild(entered: str, official: str) -> bool:
             official = official[len(article):]
     if entered == official:
         return True
-    if len(entered) >= 4 and entered in official:
-        return True
-    initials = "".join(word[0] for word in official.split())
-    compact = entered.replace(" ", "").replace(".", "")
-    return len(initials) >= 2 and compact in (initials, "l" + initials, "e" + initials)
+    return len(entered) >= 4 and entered in official
 
 
 def check_player(player: str, guild_name: str, alliance: str | None,
