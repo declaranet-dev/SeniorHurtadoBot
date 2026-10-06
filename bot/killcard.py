@@ -57,24 +57,42 @@ def short(n: int) -> str:
     return str(int(n))
 
 
+_icon_limit = asyncio.Semaphore(6)  # el servidor de render corta si se le piden muchos a la vez
+
+
 async def _icon(session: aiohttp.ClientSession, item: dict, size: int) -> Image.Image | None:
     """Icono del objeto (con su calidad y cantidad), con caché en disco."""
     count, quality = item.get("Count") or 1, item.get("Quality") or 1
     name = f"{item['Type']}_q{quality}_c{count}_{size}.png".replace("@", "-")
     path = ICON_CACHE / name
     if path.exists():
-        return Image.open(path).convert("RGBA")
+        try:
+            return Image.open(path).convert("RGBA")
+        except OSError:  # archivo dañado: se vuelve a descargar
+            path.unlink(missing_ok=True)
     url = ICON_URL.format(type=item["Type"], count=count, quality=quality, size=size)
-    try:
-        async with session.get(url) as resp:
-            if resp.status != 200:
-                return None
-            data = await resp.read()
-    except (aiohttp.ClientError, asyncio.TimeoutError):
-        return None
-    ICON_CACHE.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
-    return Image.open(io.BytesIO(data)).convert("RGBA")
+    error = None
+    # El render de Albion falla o tarda a ratos: hasta 3 intentos por icono.
+    for attempt in range(3):
+        try:
+            async with _icon_limit:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                    if resp.status == 404:  # el objeto no tiene icono
+                        log.warning("[KILLCARD] Sin icono para %s", item["Type"])
+                        return None
+                    if resp.status != 200:
+                        raise aiohttp.ClientResponseError(resp.request_info, (), status=resp.status)
+                    data = await resp.read()
+            icon = Image.open(io.BytesIO(data)).convert("RGBA")
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+            error = e
+            await asyncio.sleep(1 + attempt * 2)
+            continue
+        ICON_CACHE.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return icon
+    log.warning("[KILLCARD] No se pudo bajar el icono de %s: %r", item["Type"], error)
+    return None
 
 
 def _background(height: int) -> Image.Image:
@@ -126,8 +144,7 @@ async def render_card(event: dict, server: str = "americas") -> io.BytesIO:
     height = inv_top + (inv_rows * (INV_ICON + GAP) + 70 if inventory else 0) + 30
 
     # Iconos y precios en paralelo.
-    timeout = aiohttp.ClientTimeout(total=20)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
+    async with aiohttp.ClientSession() as session:
         def eq(p):
             return [(slot, item) for slot, item in (p.get("Equipment") or {}).items() if item]
         tasks = {("k", s): _icon(session, it, EQ_ICON) for s, it in eq(killer)}
