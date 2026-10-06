@@ -91,13 +91,27 @@ async def set_roles(member: discord.Member, target: discord.Role | None,
     return None
 
 
+ARTICLES = ("la ", "el ", "los ", "las ", "the ")
+
+
 def same_guild(entered: str, official: str) -> bool:
-    """El gremio escrito coincide con el oficial, o es una parte clara de él
-    (p. ej. "vecindad" para "Vecindad Del Chavo")."""
+    """El gremio escrito coincide con el oficial. También vale:
+    - con artículo delante ("La Vecindad del Chavo")
+    - una parte clara del nombre ("vecindad")
+    - las iniciales ("VDC" o "LVDC" para "Vecindad Del Chavo")"""
     entered, official = normalize(entered), normalize(official)
+    for article in ARTICLES:
+        if entered.startswith(article):
+            entered = entered[len(article):]
+        if official.startswith(article):
+            official = official[len(article):]
     if entered == official:
         return True
-    return len(entered) >= 4 and entered in official
+    if len(entered) >= 4 and entered in official:
+        return True
+    initials = "".join(word[0] for word in official.split())
+    compact = entered.replace(" ", "").replace(".", "")
+    return len(initials) >= 2 and compact in (initials, "l" + initials, "e" + initials)
 
 
 def check_player(player: str, guild_name: str, alliance: str | None,
