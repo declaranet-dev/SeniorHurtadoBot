@@ -18,6 +18,7 @@ log = logging.getLogger("seniorhurtadobot.historial")
 
 KILLBOARD_URL = "https://albiononline.com/killboard/player/{}"
 MURDER_LEDGER_URL = "https://murderledger.com/players/{}"
+ALBIONDB_URL = "https://albiondb.net/player/{}"  # historial completo de gremios
 MAX_GUILDS = 10  # gremios que se muestran en el historial
 
 
@@ -110,6 +111,8 @@ def build_embed(member: discord.Member, typed_name: str, typed_guild: str, role_
         embed.add_field(name="🏰 Historial de gremios", inline=False,
                         value=_history_text(guild_history(kills, deaths), guild))
         embed.add_field(name="🔗 Enlaces", inline=False, value=(
+            f"**[Historial completo de gremios (AlbionDB)]({ALBIONDB_URL.format(player['Name'])})**
+"
             f"[Killboard oficial]({KILLBOARD_URL.format(player['Id'])}) · "
             f"[Murder Ledger]({MURDER_LEDGER_URL.format(player['Name'])})"))
     embed.add_field(name="📋 Registro", inline=False, value=(
