@@ -110,49 +110,53 @@ def same_guild(entered: str, official: str) -> bool:
     return len(entered) >= 4 and entered in official
 
 
-def check_player(player: str, guild_name: str, alliance: str | None,
-                 api_player: dict | None) -> str | None:
-    """Compara lo escrito con los datos de Albion. Devuelve el problema o None."""
+def classify(guild_name: str, api_player: dict | None, config: dict) -> tuple[bool, str]:
+    """Decide si es miembro del gremio configurado. Devuelve (es_miembro, motivo).
+
+    Solo es miembro si el personaje existe en Albion, está en el gremio
+    configurado y además escribió bien el nombre del gremio. Todo lo demás
+    se registra igual, con el rol de otros gremios.
+    """
     if api_player is None:
-        return f"No encontré al jugador **{player}** en Albion Online."
-    official_guild = api_player.get("GuildName") or ""
-    if not official_guild:
-        return f"**{api_player['Name']}** no está en ningún gremio según Albion."
-    if not same_guild(guild_name, official_guild):
-        return (f"**{api_player['Name']}** no está en el gremio **{guild_name}**. "
-                f"Según Albion, su gremio es **{official_guild}**.")
-    official_alliance = api_player.get("AllianceName") or ""
-    if alliance and normalize(alliance) != normalize(official_alliance):
-        actual = f"**{official_alliance}**" if official_alliance else "ninguna"
-        return (f"El gremio **{official_guild}** no está en la alianza **{alliance}**. "
-                f"Según Albion, su alianza es {actual}.")
-    return None
+        return False, "no encontré ese personaje en Albion"
+    official = api_player.get("GuildName") or ""
+    if not official:
+        return False, "según Albion no estás en ningún gremio"
+    in_guild = bool(config["gremio_id"]) and api_player.get("GuildId") == config["gremio_id"]
+    if not in_guild:
+        return False, f"según Albion tu gremio es **{official}**"
+    if not same_guild(guild_name, official):
+        return False, (f"según Albion sí estás en **{official}**, pero escribiste **{guild_name}**. "
+                       "Vuelve a registrarte con el nombre bien escrito para recibir tu rol del gremio")
+    return True, ""
 
 
 async def do_registro(member: discord.Member, player: str, guild_name: str,
                       alliance: str | None) -> str:
-    """Registra al jugador, ajusta sus roles y devuelve el mensaje de respuesta."""
+    """Registra al jugador, ajusta sus roles y devuelve el mensaje de respuesta.
+
+    Nadie se queda sin rol: si es del gremio configurado recibe el rol de
+    miembros; en cualquier otro caso, el de otros gremios.
+    """
     log.info("[REGISTRO] %s: jugador=%r gremio=%r alianza=%r",
              member, player, guild_name, alliance)
-
-    # Validación con la API de Albion: solo se registra si el jugador existe
-    # y está en el gremio que escribió. Se guardan los nombres oficiales.
     config = settings.get(member.guild.id)
     try:
         api_player = await albion.find_player(player, config["servidor_albion"])
     except albion.AlbionAPIError as e:
         log.error("[REGISTRO] ERROR: La API de Albion no responde: %s", e)
-        return ("⚠️ No pude verificar tu jugador porque la API de Albion no responde. "
+        return ("⚠️ No pude revisar tu personaje porque la API de Albion no responde. "
                 "Inténtalo de nuevo en unos minutos.")
-    problem = check_player(player, guild_name, alliance, api_player)
-    if problem:
-        log.info("[REGISTRO] Rechazado %s: %s", member, problem)
-        return f"❌ {problem}\nRevisa que estén bien escritos e inténtalo de nuevo."
-    player = api_player["Name"]
-    guild_name = api_player["GuildName"]
-    alliance = api_player.get("AllianceName") or None
 
-    is_member = bool(config["gremio_id"]) and api_player.get("GuildId") == config["gremio_id"]
+    is_member, reason = classify(guild_name, api_player, config)
+    if api_player is not None:
+        # Se guardan los nombres oficiales de Albion.
+        player = api_player["Name"]
+        guild_name = api_player.get("GuildName") or "Sin gremio"
+        alliance = api_player.get("AllianceName") or None
+    log.info("[REGISTRO] %s: %s (%s)", member, "miembro" if is_member else "otro",
+             reason or "en el gremio")
+
     member_role = settings.role(member.guild, "rol_miembro")
     outsider_role = settings.role(member.guild, "rol_externo")
     target, other = (member_role, outsider_role) if is_member else (outsider_role, member_role)
@@ -172,7 +176,7 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     elif is_member:
         lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{target.name}**.")
     else:
-        lines.append(f"👀 No eres de la vecindad... te tocó el rol **{target.name}**.")
+        lines.append(f"👀 Te tocó el rol **{target.name}**: {reason}.")
     if nick_error:
         lines.append(f"⚠️ No pude cambiarte el apodo: {nick_error}")
     else:
