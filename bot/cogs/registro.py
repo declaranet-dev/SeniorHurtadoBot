@@ -113,9 +113,9 @@ def same_guild(entered: str, official: str) -> bool:
 def classify(guild_name: str, api_player: dict | None, config: dict) -> tuple[bool, str]:
     """Decide si es miembro del gremio configurado. Devuelve (es_miembro, motivo).
 
-    Solo es miembro si el personaje existe en Albion, está en el gremio
-    configurado y además escribió bien el nombre del gremio. Todo lo demás
-    se registra igual, con el rol de otros gremios.
+    Es miembro si según Albion el personaje está en el gremio configurado
+    (aunque haya escrito mal el gremio). Todo lo demás se registra igual,
+    con el rol de otros gremios.
     """
     if api_player is None:
         return False, "no encontré ese personaje en Albion"
@@ -125,9 +125,6 @@ def classify(guild_name: str, api_player: dict | None, config: dict) -> tuple[bo
     in_guild = bool(config["gremio_id"]) and api_player.get("GuildId") == config["gremio_id"]
     if not in_guild:
         return False, f"según Albion tu gremio es **{official}**"
-    if not same_guild(guild_name, official):
-        return False, (f"según Albion sí estás en **{official}**, pero escribiste **{guild_name}**. "
-                       "Vuelve a registrarte con el nombre bien escrito para recibir tu rol del gremio")
     return True, ""
 
 
@@ -141,12 +138,13 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     log.info("[REGISTRO] %s: jugador=%r gremio=%r alianza=%r",
              member, player, guild_name, alliance)
     config = settings.get(member.guild.id)
+    api_down = False
     try:
         api_player = await albion.find_player(player, config["servidor_albion"])
     except albion.AlbionAPIError as e:
+        # Sin la API no se puede comprobar nada: se registra con el rol de otros gremios.
         log.error("[REGISTRO] ERROR: La API de Albion no responde: %s", e)
-        return ("⚠️ No pude revisar tu personaje porque la API de Albion no responde. "
-                "Inténtalo de nuevo en unos minutos.")
+        api_player, api_down = None, True
 
     is_member, reason = classify(guild_name, api_player, config)
     if api_player is not None:
@@ -173,6 +171,9 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     ]
     if role_error:
         lines.append(f"⚠️ No pude darte tu rol: {role_error} Avisa a un admin.")
+    elif api_down:
+        lines.append(f"⚠️ La API de Albion no responde, por lo que le di rol de **{target.name}** "
+                     f"a **{player}**.")
     elif is_member:
         lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{target.name}**.")
     else:
