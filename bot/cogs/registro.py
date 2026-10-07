@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from bot import albion, settings
+from bot import albion, historial, settings
 from bot.config import REGISTROS_FILE
 
 log = logging.getLogger("seniorhurtadobot.registro")
@@ -137,6 +137,7 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     """
     log.info("[REGISTRO] %s: jugador=%r gremio=%r alianza=%r",
              member, player, guild_name, alliance)
+    typed_name, typed_guild = player, guild_name
     config = settings.get(member.guild.id)
     api_down = False
     try:
@@ -162,6 +163,11 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     role_error = await set_roles(member, target, other)
     nick_error = await set_nickname(member, player)
     save_registro(member, player, guild_name, alliance, target.name if target else None)
+    try:  # la ficha del historial es un extra: nunca debe frenar el registro
+        await historial.post_history(member, typed_name, typed_guild, target.name if target else None,
+                                     api_player, api_down)
+    except Exception:
+        log.exception("[REGISTRO] No se pudo enviar la ficha al historial")
 
     lines = [
         f"✅ **Registro completado** — {member.mention}",

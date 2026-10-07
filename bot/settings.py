@@ -21,6 +21,7 @@ SETTINGS_FILE = ROOT_DIR / "data" / "servidores.json"
 CHANNELS = {
     "canal_bienvenida": "Bienvenida",
     "canal_registro": "Registro",
+    "canal_historial": "Historial de nuevos",
     "canal_eventos": "Eventos",
     "canal_kills": "Kills del gremio",
     "canal_muertes": "Muertes del gremio",

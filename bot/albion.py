@@ -95,6 +95,19 @@ async def get_battle_events(battle_id: int, server: str = "americas", max_pages:
     return events
 
 
+async def get_player(player_id: str, server: str = "americas") -> dict:
+    """Ficha completa de un jugador (fama PvP, PvE, recolección, crafteo...)."""
+    return await _get_json(f"/api/gameinfo/players/{player_id}", {}, server)
+
+
+async def get_player_events(player_id: str, kind: str, server: str = "americas") -> list[dict]:
+    """Últimas kills (kind="kills") o muertes (kind="deaths") de un jugador."""
+    data = await _get_json(f"/api/gameinfo/players/{player_id}/{kind}", {}, server)
+    if not isinstance(data, list):
+        raise AlbionAPIError(f"respuesta inesperada en /players/{kind}")
+    return data
+
+
 async def find_player(name: str, server: str = "americas") -> dict | None:
     """Busca un jugador por nombre exacto (sin distinguir mayúsculas).
 
