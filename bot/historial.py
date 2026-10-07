@@ -111,8 +111,7 @@ def build_embed(member: discord.Member, typed_name: str, typed_guild: str, role_
         embed.add_field(name="🏰 Historial de gremios", inline=False,
                         value=_history_text(guild_history(kills, deaths), guild))
         embed.add_field(name="🔗 Enlaces", inline=False, value=(
-            f"**[Historial completo de gremios (AlbionDB)]({ALBIONDB_URL.format(player['Name'])})**
-"
+            f"**[Historial completo de gremios (AlbionDB)]({ALBIONDB_URL.format(player['Name'])})**\n"
             f"[Killboard oficial]({KILLBOARD_URL.format(player['Id'])}) · "
             f"[Murder Ledger]({MURDER_LEDGER_URL.format(player['Name'])})"))
     embed.add_field(name="📋 Registro", inline=False, value=(
