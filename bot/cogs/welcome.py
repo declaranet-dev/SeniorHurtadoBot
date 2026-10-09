@@ -87,7 +87,7 @@ class Welcome(commands.Cog):
         new_role = settings.role(guild, "rol_nuevo")
         if new_role is None or new_role not in member.roles:
             return
-        final_roles = [settings.role(guild, k) for k in ("rol_miembro", "rol_externo")]
+        final_roles = [settings.role(guild, k) for k in ("rol_miembro", "rol_aliado", "rol_externo")]
         if not any(r is not None and r in member.roles for r in final_roles):
             return
         if role_problem(guild, new_role):

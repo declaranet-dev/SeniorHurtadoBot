@@ -16,8 +16,8 @@ ALBION_SERVERS = {"americas": "América", "europe": "Europa", "asia": "Asia"}
 PAGES = [
     ("1/4 · Canales de la comunidad", ["canal_bienvenida", "canal_registro", "canal_historial", "canal_eventos"]),
     ("2/4 · Canales del killbot", ["canal_kills", "canal_muertes", "canal_batallas", "canal_gucci"]),
-    ("3/4 · Roles", ["rol_nuevo", "rol_miembro", "rol_externo", "rol_admin_eventos"]),
-    ("4/4 · Gremio de Albion", []),
+    ("3/4 · Roles del registro", ["rol_nuevo", "rol_miembro", "rol_aliado", "rol_externo"]),
+    ("4/4 · Eventos y gremio de Albion", ["rol_admin_eventos"]),
 ]
 
 
@@ -177,7 +177,7 @@ class ConfigView(discord.ui.View):
             self.add_item(item)
         if page == len(PAGES) - 1:
             button = discord.ui.Button(label="Elegir gremio y opciones", emoji="🏰",
-                                       style=discord.ButtonStyle.primary, row=0)
+                                       style=discord.ButtonStyle.primary, row=len(PAGES[page][1]))
 
             async def open_modal(interaction: discord.Interaction):
                 await interaction.response.send_modal(AlbionModal(interaction.guild, self.page))

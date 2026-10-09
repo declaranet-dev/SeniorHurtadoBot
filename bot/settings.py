@@ -31,6 +31,7 @@ CHANNELS = {
 ROLES = {
     "rol_nuevo": "Rol al entrar al servidor",
     "rol_miembro": "Rol para miembros del gremio",
+    "rol_aliado": "Rol para la alianza del gremio",
     "rol_externo": "Rol para otros gremios",
     "rol_admin_eventos": "Rol que puede crear eventos",
 }

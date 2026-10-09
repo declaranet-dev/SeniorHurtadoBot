@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import time
 import unicodedata
 from datetime import datetime, timezone
 
@@ -55,8 +56,8 @@ def save_registro(member: discord.Member, player: str, guild_name: str,
 
 
 async def set_roles(member: discord.Member, target: discord.Role | None,
-                    other: discord.Role | None) -> str | None:
-    """Pone el rol que le toca y quita el rol de nuevos y el rol contrario.
+                    others: list[discord.Role | None]) -> str | None:
+    """Pone el rol que le toca y quita el rol de nuevos y los otros roles del registro.
 
     Devuelve None si todo fue bien, o un texto con el problema.
     """
@@ -72,8 +73,8 @@ async def set_roles(member: discord.Member, target: discord.Role | None,
         return f"el rol {target.name} está por encima del bot."
 
     to_remove = [
-        r for r in (settings.role(guild, "rol_nuevo"), other)
-        if r is not None and r in member.roles and r < me.top_role
+        r for r in (settings.role(guild, "rol_nuevo"), *others)
+        if r is not None and r != target and r in member.roles and r < me.top_role
     ]
     try:
         await member.add_roles(target, reason="Registro")
@@ -110,22 +111,40 @@ def same_guild(entered: str, official: str) -> bool:
     return len(entered) >= 4 and entered in official
 
 
-def classify(guild_name: str, api_player: dict | None, config: dict) -> tuple[bool, str]:
-    """Decide si es miembro del gremio configurado. Devuelve (es_miembro, motivo).
+_alliance_cache: dict[str, tuple[float, str]] = {}  # gremio -> (hora, id de su alianza)
 
-    Es miembro si según Albion el personaje está en el gremio configurado
-    (aunque haya escrito mal el gremio). Todo lo demás se registra igual,
-    con el rol de otros gremios.
+
+async def guild_alliance_id(config: dict) -> str:
+    """Id de la alianza del gremio configurado (se consulta como mucho cada hora)."""
+    guild_id = config["gremio_id"]
+    if not guild_id:
+        return ""
+    cached = _alliance_cache.get(guild_id)
+    if cached and time.time() - cached[0] < 3600:
+        return cached[1]
+    data = await albion.get_guild(guild_id, config["servidor_albion"])
+    alliance = data.get("AllianceId") or ""
+    _alliance_cache[guild_id] = (time.time(), alliance)
+    return alliance
+
+
+def classify(api_player: dict | None, config: dict, alliance_id: str) -> tuple[str, str]:
+    """Decide el grupo del jugador: "miembro", "aliado" u "otro". Devuelve (grupo, motivo).
+
+    - miembro: según Albion está en el gremio configurado.
+    - aliado: según Albion su gremio está en la misma alianza.
+    - otro: todo lo demás (no existe, sin gremio, otro gremio).
     """
     if api_player is None:
-        return False, "no encontré ese personaje en Albion"
+        return "otro", "no encontré ese personaje en Albion"
     official = api_player.get("GuildName") or ""
     if not official:
-        return False, "según Albion no estás en ningún gremio"
-    in_guild = bool(config["gremio_id"]) and api_player.get("GuildId") == config["gremio_id"]
-    if not in_guild:
-        return False, f"según Albion tu gremio es **{official}**"
-    return True, ""
+        return "otro", "según Albion no estás en ningún gremio"
+    if config["gremio_id"] and api_player.get("GuildId") == config["gremio_id"]:
+        return "miembro", ""
+    if alliance_id and api_player.get("AllianceId") == alliance_id:
+        return "aliado", ""
+    return "otro", f"según Albion tu gremio es **{official}**"
 
 
 async def do_registro(member: discord.Member, player: str, guild_name: str,
@@ -133,7 +152,8 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     """Registra al jugador, ajusta sus roles y devuelve el mensaje de respuesta.
 
     Nadie se queda sin rol: si es del gremio configurado recibe el rol de
-    miembros; en cualquier otro caso, el de otros gremios.
+    miembros; si su gremio es de la misma alianza, el de la alianza; en
+    cualquier otro caso, el de otros gremios.
     """
     log.info("[REGISTRO] %s: jugador=%r gremio=%r alianza=%r",
              member, player, guild_name, alliance)
@@ -147,20 +167,27 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
         log.error("[REGISTRO] ERROR: La API de Albion no responde: %s", e)
         api_player, api_down = None, True
 
-    is_member, reason = classify(guild_name, api_player, config)
+    alliance_id = ""
+    if api_player is not None:
+        try:
+            alliance_id = await guild_alliance_id(config)
+        except albion.AlbionAPIError as e:
+            log.warning("[REGISTRO] No pude consultar la alianza del gremio: %s", e)
+    group, reason = classify(api_player, config, alliance_id)
     if api_player is not None:
         # Se guardan los nombres oficiales de Albion.
         player = api_player["Name"]
         guild_name = api_player.get("GuildName") or "Sin gremio"
         alliance = api_player.get("AllianceName") or None
-    log.info("[REGISTRO] %s: %s (%s)", member, "miembro" if is_member else "otro",
-             reason or "en el gremio")
+    log.info("[REGISTRO] %s: %s (%s)", member, group, reason or "ok")
 
-    member_role = settings.role(member.guild, "rol_miembro")
-    outsider_role = settings.role(member.guild, "rol_externo")
-    target, other = (member_role, outsider_role) if is_member else (outsider_role, member_role)
+    roles = {key: settings.role(member.guild, f"rol_{key}")
+             for key in ("miembro", "aliado", "externo")}
+    if group == "aliado" and roles["aliado"] is None:
+        group, reason = "otro", "tu gremio es de la alianza, pero aquí no hay rol de alianza configurado"
+    target = roles["miembro"] if group == "miembro" else roles["aliado"] if group == "aliado" else roles["externo"]
 
-    role_error = await set_roles(member, target, other)
+    role_error = await set_roles(member, target, list(roles.values()))
     nick_error = await set_nickname(member, player)
     save_registro(member, player, guild_name, alliance, target.name if target else None)
     try:  # la ficha del historial es un extra: nunca debe frenar el registro
@@ -180,8 +207,10 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     elif api_down:
         lines.append(f"⚠️ La API de Albion no responde, por lo que le di rol de **{target.name}** "
                      f"a **{player}**.")
-    elif is_member:
+    elif group == "miembro":
         lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{target.name}**.")
+    elif group == "aliado":
+        lines.append(f"🤝 ¡Eres de la alianza **{alliance}**! Ya tienes tu rol **{target.name}**.")
     else:
         lines.append(f"👀 Te tocó el rol **{target.name}**: {reason}.")
     if nick_error:

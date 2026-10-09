@@ -108,6 +108,11 @@ async def get_player_events(player_id: str, kind: str, server: str = "americas")
     return data
 
 
+async def get_guild(guild_id: str, server: str = "americas") -> dict:
+    """Datos de un gremio (nombre, alianza...)."""
+    return await _get_json(f"/api/gameinfo/guilds/{guild_id}", {}, server)
+
+
 async def find_player(name: str, server: str = "americas") -> dict | None:
     """Busca un jugador por nombre exacto (sin distinguir mayúsculas).
 
