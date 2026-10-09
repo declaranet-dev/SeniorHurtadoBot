@@ -42,6 +42,7 @@ DEFAULTS = {
     "gremio_nombre": None,
     "servidor_albion": "americas",  # americas, europe o asia
     "batalla_min_jugadores": 10,
+    "batalla_min_gremio": 5,  # jugadores del gremio en la batalla para publicarla
     "gucci_min_fama": 5_000_000,
 }
 

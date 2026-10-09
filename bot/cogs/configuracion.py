@@ -73,7 +73,8 @@ def summary_embed(guild: discord.Guild, page: int | None) -> discord.Embed:
     embed.add_field(name="Albion", inline=False, value=(
         f"{'✅' if gremio else '❌'} Gremio: {f'**{gremio}**' if gremio else 'sin configurar'}\n"
         f"🌎 Servidor: {ALBION_SERVERS.get(config['servidor_albion'], config['servidor_albion'])}\n"
-        f"☠️ Battle board: batallas de {config['batalla_min_jugadores']}+ jugadores\n"
+        f"☠️ Battle board: batallas de {config['batalla_min_jugadores']}+ jugadores "
+        f"con {config['batalla_min_gremio']}+ del gremio\n"
         f"💵 Gucci kills: desde {config['gucci_min_fama']:,} de fama"
     ))
     embed.set_footer(text="Lo que quede sin configurar simplemente no se usa en este servidor.")
@@ -123,9 +124,11 @@ class AlbionModal(discord.ui.Modal, title="Gremio de Albion"):
                                              default=config["servidor_albion"], max_length=10)
         self.min_jugadores = discord.ui.TextInput(label="Battle board: jugadores mínimos",
                                                   default=str(config["batalla_min_jugadores"]), max_length=3)
+        self.min_gremio = discord.ui.TextInput(label="Battle board: mínimo de jugadores del gremio",
+                                               default=str(config["batalla_min_gremio"]), max_length=3)
         self.gucci = discord.ui.TextInput(label="Gucci kills: fama mínima",
                                           default=str(config["gucci_min_fama"]), max_length=12)
-        for item in (self.gremio, self.servidor, self.min_jugadores, self.gucci):
+        for item in (self.gremio, self.servidor, self.min_jugadores, self.min_gremio, self.gucci):
             self.add_item(item)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -135,8 +138,9 @@ class AlbionModal(discord.ui.Modal, title="Gremio de Albion"):
                 "❌ El servidor debe ser **americas**, **europe** o **asia**.", ephemeral=True)
             return
         min_players = self.min_jugadores.value.strip()
+        min_guild = self.min_gremio.value.strip()
         gucci = self.gucci.value.strip().replace(",", "").replace(".", "")
-        if not min_players.isdigit() or not gucci.isdigit():
+        if not min_players.isdigit() or not min_guild.isdigit() or not gucci.isdigit():
             await interaction.response.send_message(
                 "❌ Los jugadores mínimos y la fama mínima deben ser números.", ephemeral=True)
             return
@@ -160,6 +164,7 @@ class AlbionModal(discord.ui.Modal, title="Gremio de Albion"):
         found = exact[0]
         settings.update(interaction.guild.id, gremio_id=found["Id"], gremio_nombre=found["Name"],
                         servidor_albion=region, batalla_min_jugadores=int(min_players),
+                        batalla_min_gremio=int(min_guild),
                         gucci_min_fama=int(gucci))
         log.info("[CONFIG] %s: gremio %s (%s, %s) por %s", interaction.guild.name, found["Name"],
                  found["Id"], region, interaction.user)

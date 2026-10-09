@@ -177,7 +177,9 @@ class BattleBoard(commands.Cog):
             for battle in sorted(battles, key=lambda b: b["id"]):
                 if battle["id"] in posted or not is_finished(battle):
                     continue  # las que siguen en curso se revisan en la próxima vuelta
-                if len(battle["players"]) >= config["batalla_min_jugadores"]:
+                ours = sum(1 for pl in battle["players"].values() if pl.get("guildId") == config["gremio_id"])
+                if (len(battle["players"]) >= config["batalla_min_jugadores"]
+                        and ours >= config["batalla_min_gremio"]):
                     try:
                         await send_battle(channel, battle, config["gremio_id"], config["servidor_albion"])
                     except discord.HTTPException as e:
@@ -194,6 +196,7 @@ class BattleBoard(commands.Cog):
         for guild, config, channel in self._active_servers():
             log.info("[BATTLE] %s: batallas de %s+ jugadores en #%s", guild.name,
                      config["batalla_min_jugadores"], channel.name)
+            log.info("[BATTLE] %s: y al menos %s jugadores del gremio", guild.name, config["batalla_min_gremio"])
 
 
 async def setup(bot: commands.Bot):
