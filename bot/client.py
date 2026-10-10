@@ -16,6 +16,7 @@ EXTENSIONS = [
     "bot.cogs.configuracion",
     "bot.cogs.welcome",
     "bot.cogs.registro",
+    "bot.cogs.tickets",
     "bot.cogs.eventos",
     "bot.cogs.killbot",
     "bot.cogs.battleboard",

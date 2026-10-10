@@ -18,6 +18,11 @@ COMMAND_PREFIX = "!"
 # Registro
 REGISTROS_FILE = ROOT_DIR / "data" / "registros.json"
 
+# Tickets de registro (canal temporal por jugador nuevo)
+TICKETS_FILE = ROOT_DIR / "data" / "tickets.json"
+TICKET_CLOSE_SECONDS = 120  # el canal se borra este tiempo después de registrarse
+TICKET_MAX_HOURS = 48  # y si nunca se registra, a las tantas horas
+
 # Eventos
 EVENT_DURATION_HOURS = 2  # Discord exige una hora de fin en eventos externos
 EVENT_DELETE_AFTER_HOURS = 8  # el anuncio se borra estas horas después de la hora del evento

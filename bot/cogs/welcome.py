@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 
 from bot import settings
+from bot.cogs import tickets
 
 log = logging.getLogger("seniorhurtadobot.welcome")
 
@@ -106,7 +107,12 @@ class Welcome(commands.Cog):
         # da la bienvenida; si falla la bienvenida, el rol se queda puesto.
         role = settings.role(guild, "rol_nuevo")
         assigned = await self._assign_role(member, role)
-        await self._send_welcome(member, role.name if assigned else None)
+        try:
+            ticket = await tickets.open_ticket(member)
+        except Exception:  # el ticket es un extra: nunca debe frenar la bienvenida
+            log.exception("[WELCOME] No se pudo abrir el ticket de %s", member)
+            ticket = None
+        await self._send_welcome(member, role.name if assigned else None, ticket)
 
     async def _assign_role(self, member: discord.Member, role: discord.Role | None) -> bool:
         if role is None:
@@ -123,12 +129,17 @@ class Welcome(commands.Cog):
         log.info("[WELCOME] Rol %s asignado correctamente", role.name)
         return True
 
-    async def _send_welcome(self, member: discord.Member, role_name: str | None):
+    async def _send_welcome(self, member: discord.Member, role_name: str | None,
+                            ticket: discord.TextChannel | None = None):
         channel = settings.channel(member.guild, "canal_bienvenida")
         if channel is None:
             return  # bienvenida sin configurar en este servidor
+        text = pick_welcome_message(member.mention, role_name)
+        where = ticket or settings.channel(member.guild, "canal_registro")
+        if where is not None:
+            text += f"\n\n📋 **Regístrate aquí:** {where.mention}"
         try:
-            await channel.send(pick_welcome_message(member.mention, role_name))
+            await channel.send(text)
         except discord.HTTPException as e:
             log.error("[WELCOME] ERROR: No se pudo enviar la bienvenida en #%s: %s", channel.name, e)
             return

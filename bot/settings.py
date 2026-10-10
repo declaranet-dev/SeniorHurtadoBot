@@ -44,6 +44,7 @@ DEFAULTS = {
     "batalla_min_jugadores": 10,
     "batalla_min_gremio": 5,  # jugadores del gremio en la batalla para publicarla
     "gucci_min_fama": 5_000_000,
+    "tickets_registro": True,  # abrir un canal temporal de registro a cada jugador nuevo
 }
 
 _lock = threading.Lock()

@@ -12,6 +12,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from bot import albion, historial, settings
+from bot.cogs import tickets
 from bot.config import REGISTROS_FILE
 
 log = logging.getLogger("seniorhurtadobot.registro")
@@ -55,30 +56,32 @@ def save_registro(member: discord.Member, player: str, guild_name: str,
     tmp.replace(REGISTROS_FILE)
 
 
-async def set_roles(member: discord.Member, target: discord.Role | None,
+async def set_roles(member: discord.Member, targets: list[discord.Role | None],
                     others: list[discord.Role | None]) -> str | None:
-    """Pone el rol que le toca y quita el rol de nuevos y los otros roles del registro.
+    """Pone los roles que le tocan y quita el rol de nuevos y los demás roles del registro.
 
     Devuelve None si todo fue bien, o un texto con el problema.
     """
     guild = member.guild
     me = guild.me
-    if target is None:
+    targets = [r for r in targets if r is not None]
+    if not targets:
         return "el rol no está configurado (/configuracion)."
     if not me.guild_permissions.manage_roles:
         log.error("[REGISTRO] ERROR: El bot no tiene permisos suficientes")
         return "el bot no tiene permiso para gestionar roles."
-    if target >= me.top_role:
-        log.error("[REGISTRO] ERROR: El rol %s está por encima del bot", target.name)
-        return f"el rol {target.name} está por encima del bot."
+    for target in targets:
+        if target >= me.top_role:
+            log.error("[REGISTRO] ERROR: El rol %s está por encima del bot", target.name)
+            return f"el rol {target.name} está por encima del bot."
 
     to_remove = [
         r for r in (settings.role(guild, "rol_nuevo"), *others)
-        if r is not None and r != target and r in member.roles and r < me.top_role
+        if r is not None and r not in targets and r in member.roles and r < me.top_role
     ]
     try:
-        await member.add_roles(target, reason="Registro")
-        log.info("[REGISTRO] Rol %s asignado a %s", target.name, member)
+        await member.add_roles(*targets, reason="Registro")
+        log.info("[REGISTRO] Roles %s asignados a %s", ", ".join(r.name for r in targets), member)
         if to_remove:
             await member.remove_roles(*to_remove, reason="Registro")
             log.info("[REGISTRO] Roles quitados a %s: %s",
@@ -148,8 +151,8 @@ def classify(api_player: dict | None, config: dict, alliance_id: str) -> tuple[s
 
 
 async def do_registro(member: discord.Member, player: str, guild_name: str,
-                      alliance: str | None) -> str:
-    """Registra al jugador, ajusta sus roles y devuelve el mensaje de respuesta.
+                      alliance: str | None) -> tuple[str, bool]:
+    """Registra al jugador y ajusta sus roles. Devuelve (mensaje, si recibió sus roles).
 
     Nadie se queda sin rol: si es del gremio configurado recibe el rol de
     miembros; si su gremio es de la misma alianza, el de la alianza; en
@@ -185,14 +188,21 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
              for key in ("miembro", "aliado", "externo")}
     if group == "aliado" and roles["aliado"] is None:
         group, reason = "otro", "tu gremio es de la alianza, pero aquí no hay rol de alianza configurado"
-    target = roles["miembro"] if group == "miembro" else roles["aliado"] if group == "aliado" else roles["externo"]
+    if group == "miembro":
+        targets = [roles["miembro"]]
+    elif group == "aliado":
+        # Los aliados llevan su rol de alianza y además el de otros gremios.
+        targets = [roles["aliado"], roles["externo"]]
+    else:
+        targets = [roles["externo"]]
+    targets = [r for r in targets if r is not None]
+    role_names = " y ".join(r.name for r in targets) or None
 
-    role_error = await set_roles(member, target, list(roles.values()))
+    role_error = await set_roles(member, targets, list(roles.values()))
     nick_error = await set_nickname(member, player)
-    save_registro(member, player, guild_name, alliance, target.name if target else None)
+    save_registro(member, player, guild_name, alliance, role_names)
     try:  # la ficha del historial es un extra: nunca debe frenar el registro
-        await historial.post_history(member, typed_name, typed_guild, target.name if target else None,
-                                     api_player, api_down)
+        await historial.post_history(member, typed_name, typed_guild, role_names, api_player, api_down)
     except Exception:
         log.exception("[REGISTRO] No se pudo enviar la ficha al historial")
 
@@ -205,19 +215,20 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     if role_error:
         lines.append(f"⚠️ No pude darte tu rol: {role_error} Avisa a un admin.")
     elif api_down:
-        lines.append(f"⚠️ La API de Albion no responde, por lo que le di rol de **{target.name}** "
+        lines.append(f"⚠️ La API de Albion no responde, por lo que le di rol de **{role_names}** "
                      f"a **{player}**.")
     elif group == "miembro":
-        lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{target.name}**.")
+        lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{role_names}**.")
     elif group == "aliado":
-        lines.append(f"🤝 ¡Eres de la alianza **{alliance}**! Ya tienes tu rol **{target.name}**.")
+        plural = "tus roles" if len(targets) > 1 else "tu rol"
+        lines.append(f"🤝 ¡Eres de la alianza **{alliance}**! Ya tienes {plural} **{role_names}**.")
     else:
-        lines.append(f"👀 Te tocó el rol **{target.name}**: {reason}.")
+        lines.append(f"👀 Te tocó el rol **{role_names}**: {reason}.")
     if nick_error:
         lines.append(f"⚠️ No pude cambiarte el apodo: {nick_error}")
     else:
         lines.append(f"🏷️ Tu apodo en el servidor ahora es **{player}**.")
-    return "\n".join(lines)
+    return "\n".join(lines), role_error is None
 
 
 async def set_nickname(member: discord.Member, player: str) -> str | None:
@@ -250,6 +261,8 @@ async def set_nickname(member: discord.Member, player: str) -> str | None:
 def wrong_channel(guild: discord.Guild, channel_id_used: int | None) -> str | None:
     """Mensaje de aviso si el registro se intenta fuera del canal configurado."""
     channel_id = settings.get(guild.id)["canal_registro"]
+    if tickets.is_ticket(channel_id_used):
+        return None  # los canales temporales de registro también valen
     if channel_id and channel_id_used != channel_id:
         return f"El registro se hace en <#{channel_id}>."
     return None
@@ -266,13 +279,15 @@ class RegistroModal(discord.ui.Modal, title="Registro en la vecindad"):
     async def on_submit(self, interaction: discord.Interaction):
         # Consultar la API puede tardar: se avisa a Discord para no pasar de 3 s.
         await interaction.response.defer(thinking=True)
-        text = await do_registro(
+        text, ok = await do_registro(
             interaction.user,
             self.jugador.value.strip(),
             self.gremio.value.strip(),
             self.alianza.value.strip() or None,
         )
         await interaction.followup.send(text)
+        if ok:
+            await tickets.registered(interaction.user, interaction.channel)
 
 
 class RegistroView(discord.ui.View):
@@ -313,8 +328,10 @@ class Registro(commands.Cog):
             )
             return
         async with ctx.typing():
-            text = await do_registro(ctx.author, *parsed)
+            text, ok = await do_registro(ctx.author, *parsed)
         await ctx.send(text)
+        if ok:
+            await tickets.registered(ctx.author, ctx.channel)
 
     @app_commands.command(name="registro", description="Regístrate con tu jugador de Albion y tu gremio")
     @app_commands.describe(
@@ -332,11 +349,13 @@ class Registro(commands.Cog):
             return
         # Cambiar roles puede tardar: se avisa a Discord para no pasar de 3 s.
         await interaction.response.defer(thinking=True)
-        text = await do_registro(
+        text, ok = await do_registro(
             interaction.user, name.strip(), guild.strip(),
             (alianza or "").strip() or None,
         )
         await interaction.followup.send(text)
+        if ok:
+            await tickets.registered(interaction.user, interaction.channel)
 
     @commands.Cog.listener()
     async def on_ready(self):
