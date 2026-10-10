@@ -181,6 +181,16 @@ class Tickets(commands.Cog):
         await self.bot.wait_until_ready()
 
     @commands.Cog.listener()
+    async def on_member_update(self, before: discord.Member, after: discord.Member):
+        """Si recibe su rol de miembro, alianza u otro gremio por cualquier vía
+        (registro en otro canal o a mano por un admin), su ticket se cierra."""
+        if before.roles == after.roles:
+            return
+        final = [settings.role(after.guild, k) for k in ("rol_miembro", "rol_aliado", "rol_externo")]
+        if any(r is not None and r in after.roles for r in final):
+            await registered(after, None)
+
+    @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
         """Si se va del servidor sin registrarse, su ticket ya no hace falta."""
         for channel_id, ticket in list(_load().items()):
