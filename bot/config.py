@@ -24,6 +24,10 @@ TICKET_CLOSE_SECONDS = 120  # el canal se borra este tiempo después de registra
 TICKET_MAX_HOURS = 24  # y si nunca se registra, a las tantas horas
 TICKET_WARN_HOURS = 1  # se le avisa este tiempo antes de borrarlo
 
+# Balance (tortas de jamón)
+BALANCE_FILE = ROOT_DIR / "data" / "balance.json"
+BALANCE_ROLE_NAME = "chespirito"  # si no hay rol configurado, se busca uno con este nombre
+
 # Eventos
 EVENT_DURATION_HOURS = 2  # Discord exige una hora de fin en eventos externos
 EVENT_DELETE_AFTER_HOURS = 8  # el anuncio se borra estas horas después de la hora del evento

@@ -34,6 +34,7 @@ ROLES = {
     "rol_aliado": "Rol para la alianza del gremio",
     "rol_externo": "Rol para otros gremios",
     "rol_admin_eventos": "Rol que puede crear eventos",
+    "rol_banquero": "Rol que maneja el balance (/addh, /removeh, /prestamoh)",
 }
 DEFAULTS = {
     **{k: None for k in CHANNELS},

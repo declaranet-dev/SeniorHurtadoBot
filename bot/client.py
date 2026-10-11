@@ -20,6 +20,7 @@ EXTENSIONS = [
     "bot.cogs.eventos",
     "bot.cogs.killbot",
     "bot.cogs.battleboard",
+    "bot.cogs.balance",
 ]
 
 
