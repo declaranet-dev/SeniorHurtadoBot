@@ -10,8 +10,9 @@ al saldo (deuda de 1M y se agregan 1.2M: se suman 200k).
 
 Sincronización: el gremio todavía usa otro bot de balance en #balance. Cada
 hora se leen sus mensajes nuevos (consultas, movimientos, rankings y
-transferencias) y se copia el saldo que muestran, salvo que el jugador haya
-tenido un movimiento aquí más reciente que ese mensaje.
+transferencias). De cada jugador se recuerda el último saldo que mostró ese
+bot, y solo la diferencia cuando cambia se aplica aquí (como un /addh), así
+que una simple consulta allá no borra lo que se movió aquí.
 """
 
 import json
@@ -85,7 +86,6 @@ def move(guild_id: int, name: str, action: str, amount: int, by: discord.Member,
     player = server["saldos"].setdefault(key, {"nombre": " ".join(name.split()), "saldo": 0})
     player.setdefault("deuda", 0)
     before, paid = player["saldo"], 0
-    player["fecha"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if action == "reiniciar":
         player["saldo"] = 0
     elif action == "prestamo":
@@ -137,27 +137,42 @@ def parse_old_bot(content: str) -> list[tuple[str, int]]:
     return found
 
 
-def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime) -> list[str]:
-    """Copia los saldos del otro bot si son más nuevos que lo de aquí. Devuelve los que cambiaron."""
+def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime,
+                 baseline: bool, created: set[str]) -> list[str]:
+    """Aplica lo que cambió en el otro bot desde la última vez. Devuelve los jugadores que cambiaron.
+
+    baseline (primera lectura del canal): solo se anota lo que muestra el otro
+    bot, sin mover saldos, porque los saldos iniciales ya salieron de ahí. Los
+    jugadores que no existían se crean (en created) con su último saldo.
+    """
     data = _load()
     server = _server(data, guild_id)
     changed = []
     for name, saldo in entries:
         key = key_of(name)
         player = server["saldos"].get(key)
-        if player is not None and player.get("fecha") and datetime.fromisoformat(player["fecha"]) >= when:
-            continue  # aquí hubo un movimiento más reciente: manda el nuestro
         if player is None:
-            player = server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": 0, "deuda": 0}
-        before = player["saldo"]
-        player["fecha"] = when.isoformat(timespec="seconds")
-        if before == saldo:
+            player = server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": saldo,
+                                              "deuda": 0, "saldo_otro": saldo}
+            created.add(key)
+            delta, paid = saldo, 0
+        elif baseline or "saldo_otro" not in player:
+            if key in created:
+                player["saldo"] = saldo
+            player["saldo_otro"] = saldo
             continue
-        player["saldo"] = saldo
+        else:
+            delta = saldo - player["saldo_otro"]
+            player["saldo_otro"] = saldo
+            if delta == 0:
+                continue  # allá no se movió nada: se queda lo de aquí
+            paid = min(player.get("deuda", 0), delta) if delta > 0 else 0
+            player["deuda"] = player.get("deuda", 0) - paid
+            player["saldo"] += delta - paid
         server["historial"].append({
             "fecha": when.isoformat(timespec="seconds"), "por": None, "por_nombre": "bot de balance anterior",
-            "jugador": player["nombre"], "accion": "sincronizar", "cantidad": saldo - before,
-            "pago_deuda": 0, "saldo": saldo, "deuda": player.get("deuda", 0), "razon": None,
+            "jugador": player["nombre"], "accion": "sincronizar", "cantidad": delta - paid,
+            "pago_deuda": paid, "saldo": player["saldo"], "deuda": player.get("deuda", 0), "razon": None,
         })
         changed.append(player["nombre"])
     server["historial"] = server["historial"][-MAX_HISTORY:]
@@ -292,6 +307,8 @@ class Balance(commands.Cog):
             return 0
         last = sync_state(guild.id)
         after = discord.Object(last) if last else None
+        baseline = last is None
+        created: set[str] = set()
         changed: list[str] = []
         newest = None
         async for message in channel.history(limit=None, after=after, oldest_first=True):
@@ -300,10 +317,13 @@ class Balance(commands.Cog):
                 continue
             entries = parse_old_bot(message.content)
             if entries:
-                changed += apply_synced(guild.id, entries, message.created_at)
+                changed += apply_synced(guild.id, entries, message.created_at, baseline, created)
         if newest is not None:
             set_sync_state(guild.id, newest)
-        if changed:
+        if baseline:
+            log.info("[BALANCE] %s: primera lectura de #%s (sin mover saldos; %d jugadores nuevos)",
+                     guild.name, channel.name, len(created))
+        elif changed:
             log.info("[BALANCE] %s: sincronizados desde #%s: %s", guild.name, channel.name,
                      ", ".join(dict.fromkeys(changed)))
         return len(set(changed))
