@@ -17,7 +17,7 @@ PAGES = [
     ("1/4 · Canales de la comunidad", ["canal_bienvenida", "canal_registro", "canal_historial", "canal_eventos"]),
     ("2/4 · Canales del killbot", ["canal_kills", "canal_muertes", "canal_batallas", "canal_gucci"]),
     ("3/4 · Roles del registro", ["rol_nuevo", "rol_miembro", "rol_aliado", "rol_externo"]),
-    ("4/4 · Eventos, balance y gremio de Albion", ["rol_admin_eventos", "rol_banquero"]),
+    ("4/4 · Eventos, balance y gremio de Albion", ["rol_admin_eventos", "rol_banquero", "canal_balance"]),
 ]
 
 

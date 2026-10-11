@@ -27,6 +27,7 @@ CHANNELS = {
     "canal_muertes": "Muertes del gremio",
     "canal_batallas": "Battle board",
     "canal_gucci": "Gucci kills (todo Albion)",
+    "canal_balance": "Canal del otro bot de balance (se sincroniza cada hora)",
 }
 ROLES = {
     "rol_nuevo": "Rol al entrar al servidor",

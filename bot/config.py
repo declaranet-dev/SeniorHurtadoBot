@@ -27,6 +27,8 @@ TICKET_WARN_HOURS = 1  # se le avisa este tiempo antes de borrarlo
 # Balance (tortas de jamón)
 BALANCE_FILE = ROOT_DIR / "data" / "balance.json"
 BALANCE_ROLE_NAME = "chespirito"  # si no hay rol configurado, se busca uno con este nombre
+BALANCE_SYNC_BOT_ID = 1556124267354267718  # el otro bot de balance, del que se copian los saldos
+BALANCE_SYNC_MINUTES = 60  # cada cuánto se leen sus mensajes nuevos
 
 # Eventos
 EVENT_DURATION_HOURS = 2  # Discord exige una hora de fin en eventos externos
