@@ -7,6 +7,11 @@ nombres son libres (los del juego) y no distinguen mayúsculas. /addh,
 Préstamos: /prestamoh suma al saldo y deja la misma cantidad como deuda. Lo
 que después se agregue con /addh paga primero la deuda y solo el resto llega
 al saldo (deuda de 1M y se agregan 1.2M: se suman 200k).
+
+Sincronización: el gremio todavía usa otro bot de balance en #balance. Cada
+hora se leen sus mensajes nuevos (consultas, movimientos, rankings y
+transferencias) y se copia el saldo que muestran, salvo que el jugador haya
+tenido un movimiento aquí más reciente que ese mensaje.
 """
 
 import json
@@ -16,10 +21,10 @@ from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from bot import settings
-from bot.config import BALANCE_FILE, BALANCE_ROLE_NAME
+from bot.config import BALANCE_FILE, BALANCE_ROLE_NAME, BALANCE_SYNC_BOT_ID, BALANCE_SYNC_MINUTES
 
 log = logging.getLogger("seniorhurtadobot.balance")
 
@@ -80,6 +85,7 @@ def move(guild_id: int, name: str, action: str, amount: int, by: discord.Member,
     player = server["saldos"].setdefault(key, {"nombre": " ".join(name.split()), "saldo": 0})
     player.setdefault("deuda", 0)
     before, paid = player["saldo"], 0
+    player["fecha"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
     if action == "reiniciar":
         player["saldo"] = 0
     elif action == "prestamo":
@@ -99,6 +105,74 @@ def move(guild_id: int, name: str, action: str, amount: int, by: discord.Member,
     server["historial"] = server["historial"][-MAX_HISTORY:]
     _save(data)
     return player, new, paid
+
+
+# --- Sincronización con el otro bot de balance
+
+_NUM = r"\*\*(-?[\d,]+) tortas de jamón\*\*"
+_PATTERNS = [
+    # 🥪 **Andrew** tiene **2,373,326 tortas de jamón**.
+    re.compile(r"^🥪 \*\*(?P<name>.+?)\*\* tiene " + _NUM.replace("(-?", "(?P<n>-?"), re.M),
+    # ✅ Se agregaron / 🔴 Se quitaron **N tortas de jamón** a **X**.\n🥪 Nuevo saldo: **N tortas de jamón**
+    re.compile(r"Se (?:agregaron|quitaron) \*\*[\d,]+ tortas de jamón\*\* a \*\*(?P<name>.+?)\*\*\.\n"
+               r".*?Nuevo saldo: " + _NUM.replace("(-?", "(?P<n>-?")),
+    # 🥇 az0gth — **23,181,426 tortas de jamón**   /   **4.** Cuenta Gremial — **...**
+    re.compile(r"^(?:🥇|🥈|🥉|\*\*\d+\.\*\*) (?P<name>.+?) — " + _NUM.replace("(-?", "(?P<n>-?"), re.M),
+    # 👤 **De:** Cazamaracas ... 💰 Tu nuevo saldo: **807,900 tortas de jamón**
+    re.compile(r"\*\*De:\*\* (?P<name>.+?)\n(?:.*\n)*?.*Tu nuevo saldo: " + _NUM.replace("(-?", "(?P<n>-?")),
+]
+
+
+def parse_old_bot(content: str) -> list[tuple[str, int]]:
+    """Saldos (nombre, cantidad) que muestra un mensaje del otro bot de balance.
+
+    Los movimientos a "cada miembro de" un rol no dicen a quién, así que se ignoran.
+    """
+    if "cada miembro de" in content:
+        return []
+    found = []
+    for pattern in _PATTERNS:
+        for m in pattern.finditer(content):
+            found.append((m["name"].strip(), int(m["n"].replace(",", ""))))
+    return found
+
+
+def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime) -> list[str]:
+    """Copia los saldos del otro bot si son más nuevos que lo de aquí. Devuelve los que cambiaron."""
+    data = _load()
+    server = _server(data, guild_id)
+    changed = []
+    for name, saldo in entries:
+        key = key_of(name)
+        player = server["saldos"].get(key)
+        if player is not None and player.get("fecha") and datetime.fromisoformat(player["fecha"]) >= when:
+            continue  # aquí hubo un movimiento más reciente: manda el nuestro
+        if player is None:
+            player = server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": 0, "deuda": 0}
+        before = player["saldo"]
+        player["fecha"] = when.isoformat(timespec="seconds")
+        if before == saldo:
+            continue
+        player["saldo"] = saldo
+        server["historial"].append({
+            "fecha": when.isoformat(timespec="seconds"), "por": None, "por_nombre": "bot de balance anterior",
+            "jugador": player["nombre"], "accion": "sincronizar", "cantidad": saldo - before,
+            "pago_deuda": 0, "saldo": saldo, "deuda": player.get("deuda", 0), "razon": None,
+        })
+        changed.append(player["nombre"])
+    server["historial"] = server["historial"][-MAX_HISTORY:]
+    _save(data)
+    return changed
+
+
+def sync_state(guild_id: int) -> int | None:
+    return _server(_load(), guild_id).get("sync_ultimo")
+
+
+def set_sync_state(guild_id: int, message_id: int):
+    data = _load()
+    _server(data, guild_id)["sync_ultimo"] = message_id
+    _save(data)
 
 
 def debt_note(player: dict) -> str:
@@ -197,6 +271,54 @@ class ConfirmReset(discord.ui.View):
 class Balance(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.sync.change_interval(minutes=BALANCE_SYNC_MINUTES)
+
+    async def cog_load(self):
+        self.sync.start()
+
+    async def cog_unload(self):
+        self.sync.cancel()
+
+    @staticmethod
+    def _source_channel(guild: discord.Guild) -> discord.TextChannel | None:
+        """Canal del otro bot: el configurado o, si no, el que se llame "balance…"."""
+        return settings.channel(guild, "canal_balance") or discord.utils.find(
+            lambda c: c.name.casefold().lstrip("#").startswith("balance"), guild.text_channels)
+
+    async def sync_guild(self, guild: discord.Guild) -> int:
+        """Lee los mensajes nuevos del otro bot y actualiza saldos. Devuelve cuántos cambiaron."""
+        channel = self._source_channel(guild)
+        if channel is None:
+            return 0
+        last = sync_state(guild.id)
+        after = discord.Object(last) if last else None
+        changed: list[str] = []
+        newest = None
+        async for message in channel.history(limit=None, after=after, oldest_first=True):
+            newest = message.id
+            if message.author.id != BALANCE_SYNC_BOT_ID:
+                continue
+            entries = parse_old_bot(message.content)
+            if entries:
+                changed += apply_synced(guild.id, entries, message.created_at)
+        if newest is not None:
+            set_sync_state(guild.id, newest)
+        if changed:
+            log.info("[BALANCE] %s: sincronizados desde #%s: %s", guild.name, channel.name,
+                     ", ".join(dict.fromkeys(changed)))
+        return len(set(changed))
+
+    @tasks.loop(minutes=60)
+    async def sync(self):
+        for guild in self.bot.guilds:
+            try:
+                await self.sync_guild(guild)
+            except discord.HTTPException as e:
+                log.warning("[BALANCE] %s: no se pudo leer el canal del otro bot: %s", guild.name, e)
+
+    @sync.before_loop
+    async def before_sync(self):
+        await self.bot.wait_until_ready()
 
     @app_commands.command(name="balanceh", description="Cuántas tortas de jamón tiene un jugador")
     @app_commands.describe(jugador="Nombre del jugador")
