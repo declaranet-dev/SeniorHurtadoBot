@@ -17,7 +17,7 @@ PAGES = [
     ("1/4 · Canales de la comunidad", ["canal_bienvenida", "canal_registro", "canal_historial", "canal_eventos"]),
     ("2/4 · Canales del killbot", ["canal_kills", "canal_muertes", "canal_batallas", "canal_gucci"]),
     ("3/4 · Roles del registro", ["rol_nuevo", "rol_miembro", "rol_aliado", "rol_externo"]),
-    ("4/4 · Eventos y gremio de Albion", ["rol_admin_eventos"]),
+    ("4/4 · Eventos, balance y gremio de Albion", ["rol_admin_eventos", "rol_banquero", "canal_balance_log"]),
 ]
 
 
@@ -30,8 +30,8 @@ def channel_problem(guild: discord.Guild, channel: discord.TextChannel) -> str |
 
 
 def role_problem(guild: discord.Guild, role: discord.Role, key: str) -> str | None:
-    if key == "rol_admin_eventos":
-        return None  # el bot no asigna este rol, solo lo revisa
+    if key in ("rol_admin_eventos", "rol_banquero"):
+        return None  # el bot no asigna estos roles, solo los revisa
     if not guild.me.guild_permissions.manage_roles:
         return "el bot no tiene 'Gestionar roles'"
     if role >= guild.me.top_role:

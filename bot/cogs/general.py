@@ -21,6 +21,12 @@ INSTALL_TEXT = (
     "Lo que no configures simplemente no se usa."
 )
 
+BALANCE_TEXT = (
+    "`/balanceh jugador`: cuántas tortas de jamón tiene un jugador. `/rankh`: el top 20.\n"
+    "**Solo el rol chespirito:** `/addh jugador cantidad [razon]` agrega (`1M`, `500k`; negativo "
+    "para quitar; si el jugador no existe, lo crea) y `/removeh jugador` deja su balance en 0."
+)
+
 USAGE_TEXT = (
     "**Para todos**\n"
     "`/registro name guild [alianza]`: registra tu personaje de Albion. El bot lo valida con la API, "
@@ -49,6 +55,7 @@ def help_embed() -> discord.Embed:
     )
     embed.add_field(name="🛠️ Instalación (administradores)", value=INSTALL_TEXT, inline=False)
     embed.add_field(name="🎮 Uso", value=USAGE_TEXT, inline=False)
+    embed.add_field(name="🥪 Balance de tortas de jamón", value=BALANCE_TEXT, inline=False)
     return embed
 
 
