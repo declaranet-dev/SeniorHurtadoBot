@@ -15,13 +15,13 @@ import discord
 from discord.ext import commands, tasks
 
 from bot import settings
-from bot.config import TICKET_CLOSE_SECONDS, TICKET_MAX_HOURS, TICKETS_FILE
+from bot.config import TICKET_CLOSE_SECONDS, TICKET_MAX_HOURS, TICKET_WARN_HOURS, TICKETS_FILE
 
 log = logging.getLogger("seniorhurtadobot.tickets")
 
 
 def _load() -> dict:
-    """{id del canal: {"servidor", "miembro", "creado", "cerrar"}}"""
+    """{id del canal: {"servidor", "miembro", "creado", "cerrar", "aviso"}}"""
     if TICKETS_FILE.exists():
         return json.loads(TICKETS_FILE.read_text(encoding="utf-8"))
     return {}
@@ -173,8 +173,32 @@ class Tickets(commands.Cog):
                 await self._delete(channel_id, "el canal ya no existe")
             elif ticket["cerrar"] and datetime.fromisoformat(ticket["cerrar"]) <= now:
                 await self._delete(channel_id, "registro completado")
-            elif datetime.fromisoformat(ticket["creado"]) + timedelta(hours=TICKET_MAX_HOURS) <= now:
-                await self._delete(channel_id, f"sin registrarse en {TICKET_MAX_HOURS} h")
+            elif ticket.get("aviso"):
+                # Se borra una vez cumplido el plazo del aviso, aunque el bot haya estado apagado.
+                if datetime.fromisoformat(ticket["aviso"]) + timedelta(hours=TICKET_WARN_HOURS) <= now:
+                    await self._delete(channel_id, f"sin registrarse en {TICKET_MAX_HOURS} h")
+            elif (datetime.fromisoformat(ticket["creado"])
+                  + timedelta(hours=TICKET_MAX_HOURS - TICKET_WARN_HOURS) <= now):
+                await self._warn(guild, channel_id, ticket)
+
+    async def _warn(self, guild: discord.Guild, channel_id: str, ticket: dict):
+        """Aviso de que el ticket se borrará pronto si no se registra."""
+        channel = guild.get_channel(int(channel_id))
+        registro = settings.channel(guild, "canal_registro")
+        who = f"<@{ticket['miembro']}>"
+        where = registro.mention if registro else "#registro"
+        hours = "1 hora" if TICKET_WARN_HOURS == 1 else f"{TICKET_WARN_HOURS} horas"
+        try:
+            await channel.send(f"⏰ Aún no te registras {who}. Este ticket se borrará en {hours}: "
+                               f"completa tu registro ahora mismo o regístrate usando `/registro` "
+                               f"en el canal {where}.")
+        except discord.HTTPException as e:
+            log.error("[TICKETS] No se pudo avisar en #%s: %s", channel.name, e)
+        data = _load()
+        if channel_id in data:
+            data[channel_id]["aviso"] = _now().isoformat()
+            _save(data)
+        log.info("[TICKETS] #%s: aviso de borrado enviado", channel.name)
 
     @cleanup.before_loop
     async def before_cleanup(self):

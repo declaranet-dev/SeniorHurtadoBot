@@ -151,8 +151,11 @@ def classify(api_player: dict | None, config: dict, alliance_id: str) -> tuple[s
 
 
 async def do_registro(member: discord.Member, player: str, guild_name: str,
-                      alliance: str | None) -> tuple[str, bool]:
+                      alliance: str | None, detailed: bool = False) -> tuple[str, bool]:
     """Registra al jugador y ajusta sus roles. Devuelve (mensaje, si recibió sus roles).
+
+    El mensaje es corto ("Registro completado — jugador"); con detailed (en los
+    tickets, que se borran solos) lleva también gremio, alianza, rol y apodo.
 
     Nadie se queda sin rol: si es del gremio configurado recibe el rol de
     miembros; si su gremio es de la misma alianza, el de la alianza; en
@@ -205,6 +208,14 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
         await historial.post_history(member, typed_name, typed_guild, role_names, api_player, api_down)
     except Exception:
         log.exception("[REGISTRO] No se pudo enviar la ficha al historial")
+
+    if not detailed:
+        if nick_error:
+            log.warning("[REGISTRO] %s: no se pudo cambiar el apodo: %s", member, nick_error)
+        lines = [f"✅ **Registro completado** — **{player}**"]
+        if role_error:
+            lines.append(f"⚠️ No pude darte tu rol: {role_error} Avisa a un admin.")
+        return "\n".join(lines), role_error is None
 
     lines = [
         f"✅ **Registro completado** — {member.mention}",
@@ -284,6 +295,7 @@ class RegistroModal(discord.ui.Modal, title="Registro en la vecindad"):
             self.jugador.value.strip(),
             self.gremio.value.strip(),
             self.alianza.value.strip() or None,
+            detailed=tickets.is_ticket(interaction.channel_id),
         )
         await interaction.followup.send(text)
         if ok:
@@ -328,7 +340,7 @@ class Registro(commands.Cog):
             )
             return
         async with ctx.typing():
-            text, ok = await do_registro(ctx.author, *parsed)
+            text, ok = await do_registro(ctx.author, *parsed, detailed=tickets.is_ticket(ctx.channel.id))
         await ctx.send(text)
         if ok:
             await tickets.registered(ctx.author, ctx.channel)
@@ -352,6 +364,7 @@ class Registro(commands.Cog):
         text, ok = await do_registro(
             interaction.user, name.strip(), guild.strip(),
             (alianza or "").strip() or None,
+            detailed=tickets.is_ticket(interaction.channel_id),
         )
         await interaction.followup.send(text)
         if ok:
