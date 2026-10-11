@@ -102,20 +102,15 @@ def move(guild_id: int, name: str, action: str, amount: int, by: discord.Member,
 
 
 def debt_note(player: dict) -> str:
-    return f" (debe {short(player['deuda'])})" if player.get("deuda") else ""
+    return f" · 📉 debe {money(player['deuda'])}" if player.get("deuda") else ""
 
 
 # --- Formato
 
 
-def short(n: int) -> str:
-    """3373326 -> 3.4M, 808100 -> 808.1k, 950 -> 950"""
-    sign, n = ("-" if n < 0 else ""), abs(n)
-    for size, suffix in ((1_000_000_000, "B"), (1_000_000, "M"), (1_000, "k")):
-        if n >= size:
-            text = f"{n / size:.1f}".rstrip("0").rstrip(".")
-            return f"{sign}{text}{suffix}"
-    return f"{sign}{n}"
+def money(n: int) -> str:
+    """Cantidad exacta con separador de miles: 1520412 -> 1,520,412"""
+    return f"{n:,}"
 
 
 def parse_amount(text: str) -> int | None:
@@ -190,7 +185,7 @@ class ConfirmReset(discord.ui.View):
         await interaction.response.edit_message(content="Hecho.", view=None)
         reason = f"\nRazón: {self.reason}" if self.reason else ""
         await interaction.followup.send(
-            f"🔴 **{player['nombre']}** quedó en **0 {UNIT}** (tenía {short(old)}){debt_note(player)}.{reason}")
+            f"💸 **{player['nombre']}** quedó en **🪙 0 {UNIT}** (tenía {money(old)}){debt_note(player)}.{reason}")
         self.stop()
 
     @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
@@ -214,7 +209,7 @@ class Balance(commands.Cog):
                 f"**{jugador}** no tiene registro de balance.", ephemeral=True)
             return
         await interaction.response.send_message(
-            f"🥪 **{player['nombre']}** tiene **{short(player['saldo'])} {UNIT}**{debt_note(player)}.")
+            f"💰 **{player['nombre']}** tiene **🪙 {money(player['saldo'])} {UNIT}** 🥪{debt_note(player)}")
 
     @app_commands.command(name="rankh", description=f"Top {RANK_SIZE} de tortas de jamón")
     @app_commands.guild_only()
@@ -224,15 +219,15 @@ class Balance(commands.Cog):
             await interaction.response.send_message("Todavía no hay balances registrados.", ephemeral=True)
             return
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        lines = [f"{medals.get(n, f'`{n:>2}.`')} **{p['nombre']}** — {short(p['saldo'])}{debt_note(p)}"
+        lines = [f"{medals.get(n, f'`{n:>2}.`')} **{p['nombre']}** — 🪙 {money(p['saldo'])}{debt_note(p)}"
                  for n, p in enumerate(top, 1)]
-        embed = discord.Embed(title=f"🏆 Ranking de {UNIT}", description="\n".join(lines),
+        embed = discord.Embed(title=f"🏆💰 Ranking de {UNIT}", description="\n".join(lines),
                               color=discord.Color.gold())
         await interaction.response.send_message(embed=embed)
 
     @app_commands.command(name="addh", description="Agrega tortas de jamón a un jugador (rol chespirito)")
     @app_commands.describe(jugador="Jugador (si no existe, se crea)",
-                           cantidad="Ej.: 1M, 500k, 1500000; negativo para quitar (-250k)",
+                           cantidad="Ej.: 1,520,412 o 1520412 (también 1M o 500k); negativo para quitar",
                            razon="Motivo (opcional)")
     @app_commands.autocomplete(jugador=player_autocomplete)
     @app_commands.guild_only()
@@ -243,7 +238,7 @@ class Balance(commands.Cog):
         amount = parse_amount(cantidad)
         if not amount:
             await interaction.response.send_message(
-                f"No entendí la cantidad **{cantidad}**. Usa por ejemplo `1M`, `500k` o `1500000`.",
+                f"No entendí la cantidad **{cantidad}**. Usa por ejemplo `1,520,412`, `1520412` o `1M`.",
                 ephemeral=True)
             return
         current = find(interaction.guild_id, jugador)
@@ -253,26 +248,26 @@ class Balance(commands.Cog):
             return
         if current is not None and current["saldo"] + amount < 0:
             await interaction.response.send_message(
-                f"**{current['nombre']}** solo tiene {short(current['saldo'])}. "
+                f"**{current['nombre']}** solo tiene {money(current['saldo'])}. "
                 f"Para dejarlo en 0 usa `/removeh`.", ephemeral=True)
             return
         player, new, paid = move(interaction.guild_id, jugador, "agregar", amount, interaction.user, razon)
         note = " (jugador nuevo)" if new else ""
         reason = f"\nRazón: {razon}" if razon else ""
         if amount > 0:
-            text = f"✅ Se agregaron **{short(amount - paid)} {UNIT}** a **{player['nombre']}**{note}."
+            text = f"💵 Se agregaron **🪙 {money(amount - paid)} {UNIT}** a **{player['nombre']}**{note}."
             if paid:
-                text += (f"\nDe los {short(amount)}, {short(paid)} pagaron su préstamo"
-                         + (f"; aún debe {short(player['deuda'])}." if player["deuda"] else "; ya no debe nada."))
+                text += (f"\nDe los {money(amount)}, {money(paid)} pagaron su préstamo"
+                         + (f"; aún debe {money(player['deuda'])}." if player["deuda"] else "; ya no debe nada."))
         else:
-            text = f"🔴 Se quitaron **{short(-amount)} {UNIT}** a **{player['nombre']}**."
+            text = f"💸 Se quitaron **🪙 {money(-amount)} {UNIT}** a **{player['nombre']}**."
         log.info("[BALANCE] %s: %s %+d a %s (deuda pagada %d) -> %d", interaction.guild.name,
                  interaction.user, amount, player["nombre"], paid, player["saldo"])
         await interaction.response.send_message(
-            f"{text}\nNuevo saldo: **{short(player['saldo'])}**{debt_note(player)}{reason}")
+            f"{text}\n🏦 Nuevo saldo: **🪙 {money(player['saldo'])}**{debt_note(player)}{reason}")
 
     @app_commands.command(name="prestamoh", description="Presta tortas de jamón a un jugador (rol chespirito)")
-    @app_commands.describe(jugador="Jugador (si no existe, se crea)", cantidad="Ej.: 1M, 500k",
+    @app_commands.describe(jugador="Jugador (si no existe, se crea)", cantidad="Ej.: 1,000,000 o 1M",
                            razon="Motivo (opcional)")
     @app_commands.autocomplete(jugador=player_autocomplete)
     @app_commands.guild_only()
@@ -284,7 +279,7 @@ class Balance(commands.Cog):
         amount = parse_amount(cantidad)
         if not amount or amount < 0:
             await interaction.response.send_message(
-                f"No entendí la cantidad **{cantidad}**. Usa por ejemplo `1M` o `500k`.", ephemeral=True)
+                f"No entendí la cantidad **{cantidad}**. Usa por ejemplo `1,000,000` o `1M`.", ephemeral=True)
             return
         player, new, _ = move(interaction.guild_id, jugador, "prestamo", amount, interaction.user, razon)
         note = " (jugador nuevo)" if new else ""
@@ -292,8 +287,8 @@ class Balance(commands.Cog):
         log.info("[BALANCE] %s: %s prestó %d a %s -> saldo %d, deuda %d", interaction.guild.name,
                  interaction.user, amount, player["nombre"], player["saldo"], player["deuda"])
         await interaction.response.send_message(
-            f"🤝 Se prestaron **{short(amount)} {UNIT}** a **{player['nombre']}**{note}.\n"
-            f"Nuevo saldo: **{short(player['saldo'])}** · debe **{short(player['deuda'])}**, que se "
+            f"🤝💵 Se prestaron **🪙 {money(amount)} {UNIT}** a **{player['nombre']}**{note}.\n"
+            f"🏦 Nuevo saldo: **🪙 {money(player['saldo'])}** · 📉 debe **{money(player['deuda'])}**, que se "
             f"descontará de lo próximo que se le agregue.{reason}")
 
     @app_commands.command(name="removeh", description="Deja en 0 el balance de un jugador (rol chespirito)")
@@ -310,7 +305,7 @@ class Balance(commands.Cog):
                                                     ephemeral=True)
             return
         await interaction.response.send_message(
-            f"¿Dejar a **{player['nombre']}** en 0? Ahora tiene **{short(player['saldo'])} {UNIT}**.",
+            f"¿Dejar a **{player['nombre']}** en 0? Ahora tiene **{money(player['saldo'])} {UNIT}**.",
             view=ConfirmReset(player["nombre"], razon), ephemeral=True)
 
 
