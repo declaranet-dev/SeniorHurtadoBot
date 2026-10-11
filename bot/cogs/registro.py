@@ -206,28 +206,11 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     except Exception:
         log.exception("[REGISTRO] No se pudo enviar la ficha al historial")
 
-    lines = [
-        f"✅ **Registro completado** — {member.mention}",
-        f"Jugador Albion: **{player}**",
-        f"Gremio: **{guild_name}**",
-        f"Alianza: **{alliance or '—'}**",
-    ]
+    if nick_error:
+        log.warning("[REGISTRO] %s: no se pudo cambiar el apodo: %s", member, nick_error)
+    lines = [f"✅ **Registro completado** — **{player}**"]
     if role_error:
         lines.append(f"⚠️ No pude darte tu rol: {role_error} Avisa a un admin.")
-    elif api_down:
-        lines.append(f"⚠️ La API de Albion no responde, por lo que le di rol de **{role_names}** "
-                     f"a **{player}**.")
-    elif group == "miembro":
-        lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{role_names}**.")
-    elif group == "aliado":
-        plural = "tus roles" if len(targets) > 1 else "tu rol"
-        lines.append(f"🤝 ¡Eres de la alianza **{alliance}**! Ya tienes {plural} **{role_names}**.")
-    else:
-        lines.append(f"👀 Te tocó el rol **{role_names}**: {reason}.")
-    if nick_error:
-        lines.append(f"⚠️ No pude cambiarte el apodo: {nick_error}")
-    else:
-        lines.append(f"🏷️ Tu apodo en el servidor ahora es **{player}**.")
     return "\n".join(lines), role_error is None
 
 
