@@ -27,7 +27,6 @@ CHANNELS = {
     "canal_muertes": "Muertes del gremio",
     "canal_batallas": "Battle board",
     "canal_gucci": "Gucci kills (todo Albion)",
-    "canal_balance_log": "Movimientos de balance (privado)",
 }
 ROLES = {
     "rol_nuevo": "Rol al entrar al servidor",
@@ -35,7 +34,7 @@ ROLES = {
     "rol_aliado": "Rol para la alianza del gremio",
     "rol_externo": "Rol para otros gremios",
     "rol_admin_eventos": "Rol que puede crear eventos",
-    "rol_banquero": "Rol que maneja el balance (/addh, /removeh)",
+    "rol_banquero": "Rol que maneja el balance (/addh, /removeh, /prestamoh)",
 }
 DEFAULTS = {
     **{k: None for k in CHANNELS},

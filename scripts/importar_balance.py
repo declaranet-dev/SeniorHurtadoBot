@@ -32,7 +32,7 @@ def main():
         if key in server["saldos"] and not replace:
             skipped += 1
             continue
-        server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": int(saldo)}
+        server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": int(saldo), "deuda": 0}
         server["historial"].append({"fecha": now, "por": None, "por_nombre": "importación",
                                     "jugador": name, "accion": "importar", "cantidad": int(saldo),
                                     "saldo": int(saldo), "razon": f"importado de {source.name}"})

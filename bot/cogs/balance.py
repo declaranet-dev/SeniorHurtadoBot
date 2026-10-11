@@ -1,10 +1,12 @@
-"""Balance de tortas de jamón del gremio: /balanceh, /rankh, /addh y /removeh.
+"""Balance de tortas de jamón del gremio: /balanceh, /rankh, /addh, /removeh y /prestamoh.
 
 Cada servidor de Discord lleva sus propios saldos en data/balance.json. Los
-nombres son libres (los del juego) y no distinguen mayúsculas. /addh y
-/removeh solo los usa el rol que maneja el balance (chespirito), y sus
-respuestas solo las ve quien los usa; si hay canal de movimientos
-configurado, ahí queda el registro para los demás chespirito.
+nombres son libres (los del juego) y no distinguen mayúsculas. /addh,
+/removeh y /prestamoh solo los usa el rol que maneja el balance (chespirito).
+
+Préstamos: /prestamoh suma al saldo y deja la misma cantidad como deuda. Lo
+que después se agregue con /addh paga primero la deuda y solo el resto llega
+al saldo (deuda de 1M y se agregan 1.2M: se suman 200k).
 """
 
 import json
@@ -30,7 +32,7 @@ MAX_HISTORY = 2000  # movimientos que se guardan por servidor
 
 
 def _load() -> dict:
-    """{"servidores": {id: {"saldos": {clave: {"nombre", "saldo"}}, "historial": [...]}}}"""
+    """{"servidores": {id: {"saldos": {clave: {"nombre", "saldo", "deuda"}}, "historial": [...]}}}"""
     if BALANCE_FILE.exists():
         return json.loads(BALANCE_FILE.read_text(encoding="utf-8"))
     return {"servidores": {}}
@@ -64,25 +66,43 @@ def find(guild_id: int, name: str) -> dict | None:
     return _server(_load(), guild_id)["saldos"].get(key_of(name))
 
 
-def move(guild_id: int, name: str, amount: int | None, by: discord.Member,
-         reason: str | None) -> tuple[dict, bool]:
-    """Suma amount al jugador (None lo deja en 0). Devuelve (jugador, si era nuevo)."""
+def move(guild_id: int, name: str, action: str, amount: int, by: discord.Member,
+         reason: str | None) -> tuple[dict, bool, int]:
+    """Aplica un movimiento al jugador y lo anota en el historial.
+
+    action: "agregar" (amount puede ser negativo), "reiniciar" (saldo a 0) o
+    "prestamo". Devuelve (jugador, si era nuevo, lo que se usó para pagar deuda).
+    """
     data = _load()
     server = _server(data, guild_id)
     key = key_of(name)
     new = key not in server["saldos"]
     player = server["saldos"].setdefault(key, {"nombre": " ".join(name.split()), "saldo": 0})
-    before = player["saldo"]
-    player["saldo"] = 0 if amount is None else before + amount
+    player.setdefault("deuda", 0)
+    before, paid = player["saldo"], 0
+    if action == "reiniciar":
+        player["saldo"] = 0
+    elif action == "prestamo":
+        player["saldo"] += amount
+        player["deuda"] += amount
+    else:
+        if amount > 0:
+            paid = min(player["deuda"], amount)
+            player["deuda"] -= paid
+        player["saldo"] += amount - paid
     server["historial"].append({
         "fecha": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "por": by.id, "por_nombre": str(by), "jugador": player["nombre"],
-        "accion": "reiniciar" if amount is None else "agregar",
-        "cantidad": player["saldo"] - before, "saldo": player["saldo"], "razon": reason,
+        "por": by.id, "por_nombre": str(by), "jugador": player["nombre"], "accion": action,
+        "cantidad": player["saldo"] - before, "pago_deuda": paid, "saldo": player["saldo"],
+        "deuda": player["deuda"], "razon": reason,
     })
     server["historial"] = server["historial"][-MAX_HISTORY:]
     _save(data)
-    return player, new
+    return player, new, paid
+
+
+def debt_note(player: dict) -> str:
+    return f" (debe {short(player['deuda'])})" if player.get("deuda") else ""
 
 
 # --- Formato
@@ -141,16 +161,6 @@ async def deny(interaction: discord.Interaction) -> bool:
     return True
 
 
-async def log_move(guild: discord.Guild, text: str):
-    channel = settings.channel(guild, "canal_balance_log")
-    if channel is None:
-        return
-    try:
-        await channel.send(text, allowed_mentions=discord.AllowedMentions.none())
-    except discord.HTTPException as e:
-        log.error("[BALANCE] %s: no se pudo escribir en #%s: %s", guild.name, channel.name, e)
-
-
 # --- Comandos
 
 
@@ -174,14 +184,13 @@ class ConfirmReset(discord.ui.View):
             await interaction.response.edit_message(content="Ese jugador ya no tiene registro.", view=None)
             return
         old = before["saldo"]
-        player, _ = move(interaction.guild_id, self.name, None, interaction.user, self.reason)
+        player, _, _ = move(interaction.guild_id, self.name, "reiniciar", 0, interaction.user, self.reason)
         log.info("[BALANCE] %s: %s dejó en 0 a %s (tenía %d)", interaction.guild.name,
                  interaction.user, player["nombre"], old)
-        await interaction.response.edit_message(
-            content=f"🔴 **{player['nombre']}** quedó en **0 {UNIT}** (tenía {short(old)}).", view=None)
-        reason = f" · Razón: {self.reason}" if self.reason else ""
-        await log_move(interaction.guild, f"🔴 {interaction.user.mention} dejó en 0 a **{player['nombre']}** "
-                                          f"(tenía {short(old)}){reason}")
+        await interaction.response.edit_message(content="Hecho.", view=None)
+        reason = f"\nRazón: {self.reason}" if self.reason else ""
+        await interaction.followup.send(
+            f"🔴 **{player['nombre']}** quedó en **0 {UNIT}** (tenía {short(old)}){debt_note(player)}.{reason}")
         self.stop()
 
     @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
@@ -205,7 +214,7 @@ class Balance(commands.Cog):
                 f"**{jugador}** no tiene registro de balance.", ephemeral=True)
             return
         await interaction.response.send_message(
-            f"🥪 **{player['nombre']}** tiene **{short(player['saldo'])} {UNIT}**.")
+            f"🥪 **{player['nombre']}** tiene **{short(player['saldo'])} {UNIT}**{debt_note(player)}.")
 
     @app_commands.command(name="rankh", description=f"Top {RANK_SIZE} de tortas de jamón")
     @app_commands.guild_only()
@@ -215,7 +224,7 @@ class Balance(commands.Cog):
             await interaction.response.send_message("Todavía no hay balances registrados.", ephemeral=True)
             return
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-        lines = [f"{medals.get(n, f'`{n:>2}.`')} **{p['nombre']}** — {short(p['saldo'])}"
+        lines = [f"{medals.get(n, f'`{n:>2}.`')} **{p['nombre']}** — {short(p['saldo'])}{debt_note(p)}"
                  for n, p in enumerate(top, 1)]
         embed = discord.Embed(title=f"🏆 Ranking de {UNIT}", description="\n".join(lines),
                               color=discord.Color.gold())
@@ -247,18 +256,45 @@ class Balance(commands.Cog):
                 f"**{current['nombre']}** solo tiene {short(current['saldo'])}. "
                 f"Para dejarlo en 0 usa `/removeh`.", ephemeral=True)
             return
-        player, new = move(interaction.guild_id, jugador, amount, interaction.user, razon)
-        verb, icon = ("Se agregaron", "✅") if amount > 0 else ("Se quitaron", "🔴")
-        reason = f"\nRazón: {razon}" if razon else ""
+        player, new, paid = move(interaction.guild_id, jugador, "agregar", amount, interaction.user, razon)
         note = " (jugador nuevo)" if new else ""
-        log.info("[BALANCE] %s: %s %+d a %s -> %d", interaction.guild.name, interaction.user,
-                 amount, player["nombre"], player["saldo"])
+        reason = f"\nRazón: {razon}" if razon else ""
+        if amount > 0:
+            text = f"✅ Se agregaron **{short(amount - paid)} {UNIT}** a **{player['nombre']}**{note}."
+            if paid:
+                text += (f"\nDe los {short(amount)}, {short(paid)} pagaron su préstamo"
+                         + (f"; aún debe {short(player['deuda'])}." if player["deuda"] else "; ya no debe nada."))
+        else:
+            text = f"🔴 Se quitaron **{short(-amount)} {UNIT}** a **{player['nombre']}**."
+        log.info("[BALANCE] %s: %s %+d a %s (deuda pagada %d) -> %d", interaction.guild.name,
+                 interaction.user, amount, player["nombre"], paid, player["saldo"])
         await interaction.response.send_message(
-            f"{icon} {verb} **{short(abs(amount))} {UNIT}** a **{player['nombre']}**{note}.\n"
-            f"Nuevo saldo: **{short(player['saldo'])}**{reason}", ephemeral=True)
-        await log_move(interaction.guild,
-                       f"{icon} {interaction.user.mention}: {verb.lower()} {short(abs(amount))} a "
-                       f"**{player['nombre']}**{note} · nuevo saldo {short(player['saldo'])}{reason}")
+            f"{text}\nNuevo saldo: **{short(player['saldo'])}**{debt_note(player)}{reason}")
+
+    @app_commands.command(name="prestamoh", description="Presta tortas de jamón a un jugador (rol chespirito)")
+    @app_commands.describe(jugador="Jugador (si no existe, se crea)", cantidad="Ej.: 1M, 500k",
+                           razon="Motivo (opcional)")
+    @app_commands.autocomplete(jugador=player_autocomplete)
+    @app_commands.guild_only()
+    async def prestamoh(self, interaction: discord.Interaction, jugador: app_commands.Range[str, 1, 64],
+                        cantidad: app_commands.Range[str, 1, 20],
+                        razon: app_commands.Range[str, 1, 200] | None = None):
+        if await deny(interaction):
+            return
+        amount = parse_amount(cantidad)
+        if not amount or amount < 0:
+            await interaction.response.send_message(
+                f"No entendí la cantidad **{cantidad}**. Usa por ejemplo `1M` o `500k`.", ephemeral=True)
+            return
+        player, new, _ = move(interaction.guild_id, jugador, "prestamo", amount, interaction.user, razon)
+        note = " (jugador nuevo)" if new else ""
+        reason = f"\nRazón: {razon}" if razon else ""
+        log.info("[BALANCE] %s: %s prestó %d a %s -> saldo %d, deuda %d", interaction.guild.name,
+                 interaction.user, amount, player["nombre"], player["saldo"], player["deuda"])
+        await interaction.response.send_message(
+            f"🤝 Se prestaron **{short(amount)} {UNIT}** a **{player['nombre']}**{note}.\n"
+            f"Nuevo saldo: **{short(player['saldo'])}** · debe **{short(player['deuda'])}**, que se "
+            f"descontará de lo próximo que se le agregue.{reason}")
 
     @app_commands.command(name="removeh", description="Deja en 0 el balance de un jugador (rol chespirito)")
     @app_commands.describe(jugador="Jugador", razon="Motivo (opcional)")

@@ -24,7 +24,8 @@ INSTALL_TEXT = (
 BALANCE_TEXT = (
     "`/balanceh jugador`: cuántas tortas de jamón tiene un jugador. `/rankh`: el top 20.\n"
     "**Solo el rol chespirito:** `/addh jugador cantidad [razon]` agrega (`1M`, `500k`; negativo "
-    "para quitar; si el jugador no existe, lo crea) y `/removeh jugador` deja su balance en 0."
+    "para quitar; si el jugador no existe, lo crea), `/removeh jugador` deja su balance en 0 y "
+    "`/prestamoh jugador cantidad` le presta: la deuda se descuenta de lo próximo que se le agregue."
 )
 
 USAGE_TEXT = (
