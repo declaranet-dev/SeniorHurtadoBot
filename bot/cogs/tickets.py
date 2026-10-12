@@ -103,8 +103,7 @@ async def open_ticket(member: discord.Member) -> discord.TextChannel | None:
                                               attach_files=True, manage_channels=True,
                                               read_message_history=True),
     }
-    staff = settings.role(guild, "rol_staff_tickets")
-    if staff is not None:
+    for staff in settings.roles(guild, "roles_staff_tickets"):
         overwrites[staff] = discord.PermissionOverwrite(view_channel=True, send_messages=True,
                                                         read_message_history=True)
     try:

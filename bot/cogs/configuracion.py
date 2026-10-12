@@ -17,7 +17,7 @@ PAGES = [
     ("1/4 · Canales de la comunidad", ["canal_bienvenida", "canal_registro", "canal_historial", "canal_eventos"]),
     ("2/4 · Canales del killbot", ["canal_kills", "canal_muertes", "canal_batallas", "canal_gucci"]),
     ("3/4 · Roles del registro", ["rol_nuevo", "rol_miembro", "rol_aliado", "rol_externo"]),
-    ("4/4 · Eventos, balance, tickets y gremio de Albion", ["rol_admin_eventos", "rol_banquero", "rol_staff_tickets", "canal_balance"]),
+    ("4/4 · Eventos, balance, tickets y gremio de Albion", ["rol_admin_eventos", "rol_banquero", "roles_staff_tickets", "canal_balance"]),
 ]
 
 
@@ -30,7 +30,7 @@ def channel_problem(guild: discord.Guild, channel: discord.TextChannel) -> str |
 
 
 def role_problem(guild: discord.Guild, role: discord.Role, key: str) -> str | None:
-    if key == "rol_staff_tickets":
+    if key == "roles_staff_tickets":
         config = settings.get(guild.id)
         if role.id in (config["rol_nuevo"], config["rol_miembro"], config["rol_aliado"], config["rol_externo"]):
             return "es un rol del registro: todos con ese rol verían los tickets"
@@ -72,6 +72,14 @@ def summary_embed(guild: discord.Guild, page: int | None) -> discord.Embed:
             problem = role_problem(guild, role, key)
             lines.append(f"{'⚠️' if problem else '✅'} {label}: {role.mention}"
                          + (f" ({problem})" if problem else ""))
+    for key, label in settings.MULTI_ROLES.items():
+        found = settings.roles(guild, key)
+        if not found:
+            lines.append(f"❌ {label}: sin configurar")
+        else:
+            problems = [f"{r.mention}: {p}" for r in found if (p := role_problem(guild, r, key))]
+            lines.append(f"{'⚠️' if problems else '✅'} {label}: {' '.join(r.mention for r in found)}"
+                         + (f" ({'; '.join(problems)})" if problems else ""))
     embed.add_field(name="Roles", value="\n".join(lines), inline=False)
 
     gremio = config["gremio_nombre"]
@@ -99,6 +107,12 @@ class SettingSelect:
                 min_values=0, max_values=1,
                 default_values=[discord.Object(current)] if settings.channel(guild, key) else [],
             )
+        elif key in settings.MULTI_ROLES:
+            select = discord.ui.RoleSelect(
+                placeholder=settings.MULTI_ROLES[key],
+                min_values=0, max_values=10,
+                default_values=[discord.Object(r.id) for r in settings.roles(guild, key)],
+            )
         else:
             select = discord.ui.RoleSelect(
                 placeholder=settings.ROLES[key],
@@ -107,7 +121,10 @@ class SettingSelect:
             )
 
         async def callback(interaction: discord.Interaction):
-            value = select.values[0].id if select.values else None
+            if key in settings.MULTI_ROLES:
+                value = [v.id for v in select.values]
+            else:
+                value = select.values[0].id if select.values else None
             settings.update(interaction.guild.id, **{key: value})
             log.info("[CONFIG] %s: %s = %s (por %s)", interaction.guild.name, key, value, interaction.user)
             view: ConfigView = select.view
