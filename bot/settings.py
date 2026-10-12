@@ -36,11 +36,15 @@ ROLES = {
     "rol_externo": "Rol para otros gremios",
     "rol_admin_eventos": "Rol que puede crear eventos",
     "rol_banquero": "Rol que maneja el balance (/addh, /removeh, /prestamoh)",
-    "rol_staff_tickets": "Rol que ve los tickets de registro (staff)",
+}
+# Ajustes que guardan varios roles (lista de IDs).
+MULTI_ROLES = {
+    "roles_staff_tickets": "Roles que ven los tickets de registro (staff)",
 }
 DEFAULTS = {
     **{k: None for k in CHANNELS},
     **{k: None for k in ROLES},
+    **{k: [] for k in MULTI_ROLES},
     "gremio_id": None,  # ID del gremio en la API de Albion
     "gremio_nombre": None,
     "servidor_albion": "americas",  # americas, europe o asia
@@ -94,6 +98,12 @@ def channel(guild: discord.Guild, key: str) -> discord.TextChannel | None:
 def role(guild: discord.Guild, key: str) -> discord.Role | None:
     role_id = get(guild.id).get(key)
     return guild.get_role(role_id) if role_id else None
+
+
+def roles(guild: discord.Guild, key: str) -> list[discord.Role]:
+    """Roles de un ajuste con varios roles; ignora los que ya no existen."""
+    found = (guild.get_role(role_id) for role_id in get(guild.id).get(key) or [])
+    return [r for r in found if r is not None]
 
 
 def migrate_from_env(guild: discord.Guild):
