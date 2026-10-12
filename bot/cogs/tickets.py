@@ -42,6 +42,12 @@ def is_ticket(channel_id: int | None) -> bool:
     return str(channel_id) in _load()
 
 
+def owner_of(channel_id: int | None) -> int | None:
+    """ID del miembro dueño del ticket, o None si el canal no es un ticket."""
+    ticket = _load().get(str(channel_id))
+    return ticket["miembro"] if ticket else None
+
+
 def ticket_of(member: discord.Member) -> discord.TextChannel | None:
     """Ticket abierto de ese miembro en ese servidor, si existe."""
     for channel_id, ticket in _load().items():
@@ -97,7 +103,7 @@ async def open_ticket(member: discord.Member) -> discord.TextChannel | None:
                                               attach_files=True, manage_channels=True,
                                               read_message_history=True),
     }
-    staff = settings.role(guild, "rol_admin_eventos")
+    staff = settings.role(guild, "rol_staff_tickets")
     if staff is not None:
         overwrites[staff] = discord.PermissionOverwrite(view_channel=True, send_messages=True,
                                                         read_message_history=True)
