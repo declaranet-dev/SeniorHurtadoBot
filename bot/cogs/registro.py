@@ -269,10 +269,16 @@ async def set_nickname(member: discord.Member, player: str) -> str | None:
     return None
 
 
-def wrong_channel(guild: discord.Guild, channel_id_used: int | None) -> str | None:
+def wrong_channel(guild: discord.Guild, channel_id_used: int | None,
+                  user: discord.abc.User) -> str | None:
     """Mensaje de aviso si el registro se intenta fuera del canal configurado."""
     channel_id = settings.get(guild.id)["canal_registro"]
-    if tickets.is_ticket(channel_id_used):
+    owner = tickets.owner_of(channel_id_used)
+    if owner is not None:
+        # El registro se aplica a quien lo hace: en un ticket ajeno solo registraría a otra persona.
+        if owner != user.id:
+            where = f" en <#{channel_id}>" if channel_id else ""
+            return f"Este ticket es de <@{owner}>. Para registrarte usa /registro{where}."
         return None  # los canales temporales de registro también valen
     if channel_id and channel_id_used != channel_id:
         return f"El registro se hace en <#{channel_id}>."
@@ -312,7 +318,7 @@ class RegistroView(discord.ui.View):
                        style=discord.ButtonStyle.primary,
                        custom_id="seniorhurtadobot:registro")
     async def open_form(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if (warning := wrong_channel(interaction.guild, interaction.channel_id)):
+        if (warning := wrong_channel(interaction.guild, interaction.channel_id, interaction.user)):
             await interaction.response.send_message(warning, ephemeral=True)
             return
         await interaction.response.send_modal(RegistroModal())
@@ -326,7 +332,7 @@ class Registro(commands.Cog):
     @commands.command(name="registro")
     @commands.guild_only()
     async def registro(self, ctx: commands.Context, *, texto: str = ""):
-        if (warning := wrong_channel(ctx.guild, ctx.channel.id)):
+        if (warning := wrong_channel(ctx.guild, ctx.channel.id, ctx.author)):
             await ctx.send(warning)
             return
 
@@ -356,7 +362,7 @@ class Registro(commands.Cog):
                              name: app_commands.Range[str, 1, 32],
                              guild: app_commands.Range[str, 1, 64],
                              alianza: app_commands.Range[str, 0, 64] | None = None):
-        if (warning := wrong_channel(interaction.guild, interaction.channel_id)):
+        if (warning := wrong_channel(interaction.guild, interaction.channel_id, interaction.user)):
             await interaction.response.send_message(warning, ephemeral=True)
             return
         # Cambiar roles puede tardar: se avisa a Discord para no pasar de 3 s.
