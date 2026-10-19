@@ -117,12 +117,26 @@ async def find_player(name: str, server: str = "americas") -> dict | None:
     """Busca un jugador por nombre exacto (sin distinguir mayúsculas).
 
     Devuelve el dict de la API (Name, GuildName, AllianceName, ...) o None.
+    Si hay varios personajes con ese nombre (uno viejo o borrado), se queda
+    con el que la API actualizó más recientemente.
     """
     data = await _get_json("/api/gameinfo/search", {"q": name}, server)
-    for player in data.get("players") or []:
-        if player.get("Name", "").lower() == name.lower():
-            return player
-    return None
+    matches = [p for p in data.get("players") or [] if p.get("Name", "").lower() == name.lower()]
+    if len(matches) <= 1:
+        return matches[0] if matches else None
+
+    async def last_seen(player: dict) -> str:
+        try:
+            details = await get_player(player["Id"], server)
+        except AlbionAPIError:
+            return ""
+        return (details.get("LifetimeStatistics") or {}).get("Timestamp") or ""
+
+    stamps = [await last_seen(p) for p in matches]
+    if all(stamps):
+        return max(zip(stamps, matches), key=lambda pair: pair[0])[1]
+    # Sin fechas de todos: el de más fama PvP suele ser el que se juega.
+    return max(matches, key=lambda p: (p.get("KillFame") or 0) + (p.get("DeathFame") or 0))
 
 
 async def find_guild(name: str, server: str = "americas") -> list[dict]:
