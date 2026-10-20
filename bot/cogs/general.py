@@ -30,7 +30,7 @@ BALANCE_TEXT = (
 )
 
 TTS_TEXT = (
-    "`/jointts`: el bot entra a tu canal de voz y crea #botttshurtado; lo que escribas ahí lo lee en voz "
+    "`/jointts` (en #bot-tts): el bot entra a tu canal de voz y crea #botttshurtado; lo que escribas ahí lo lee en voz "
     "alta. `/desconectar` lo saca y borra el canal (sale solo a los 2 min sin gente). "
     "`/hurtadotts`: ayuda. `/configtts` (admins): voz en español, velocidad y volumen."
 )
