@@ -2,7 +2,7 @@
 
 Cada minuto se suma un minuto a quien está en un canal de voz con al menos
 otra persona (sin contar el canal AFK ni a quien está ensordecido). Cada lunes
-se publica el ranking de la semana anterior en el canal de historial de nuevos.
+se publica el ranking de la semana anterior en #asistencias-a-cta (o en el historial de nuevos).
 La semana va de lunes a domingo, hora del centro de México.
 """
 
@@ -14,7 +14,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from bot import settings
+from bot.cogs.revision import report_channel
 from bot.config import ASISTENCIA_FILE, ASISTENCIA_TOP, ASISTENCIA_UTC_OFFSET
 
 log = logging.getLogger("seniorhurtadobot.asistencia")
@@ -118,7 +118,7 @@ class Asistencia(commands.Cog):
         await self.bot.wait_until_ready()
 
     async def _publish(self, guild: discord.Guild, entry: dict):
-        channel = settings.channel(guild, "canal_historial")
+        channel = report_channel(guild)
         if channel is None or not entry.get("segundos"):
             return
         try:

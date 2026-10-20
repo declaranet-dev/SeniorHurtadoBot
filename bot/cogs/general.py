@@ -55,7 +55,7 @@ USAGE_TEXT = (
 )
 
 REPORTS_TEXT = (
-    "Se publican en el canal de historial de nuevos.\n"
+    "Se publican en #asistencias-a-cta.\n"
     "• Cada 3 días, revisión de miembros y aliados contra Albion: quién ya no está en el gremio o la "
     "alianza, o quién ya entró. Solo avisa, no quita roles. `/revisionh` (admins) la hace al momento.\n"
     "• Cada lunes, ranking de asistencia en voz de la semana (cuenta con 2 o más personas en el canal, "
