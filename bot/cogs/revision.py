@@ -1,6 +1,8 @@
-"""Revisión de miembros y aliados contra Albion, cada 3 días.
+"""Revisión de miembros y aliados contra Albion, cada 2 días.
 
-Revisa a quien tiene el rol de miembros, de alianza o de otros gremios y
+Compara la lista de miembros del gremio en Albion con la de la revisión
+anterior (quién salió y quién entró), revisa a quien tiene el rol de
+miembros, de alianza o de otros gremios y
 publica un informe en #asistencias-a-cta (o en el historial de nuevos). No quita ni da roles:
 solo avisa al staff.
 """
@@ -66,12 +68,53 @@ def _field_text(lines: list[str]) -> str:
     return "\n".join(out)
 
 
-async def review_guild(guild: discord.Guild) -> discord.Embed | None:
-    """Arma el informe de un servidor. None si falta configurar el gremio."""
+def roster_text(guild_name: str, previous: list[str] | None, current: list[str],
+                registros: dict, guild: discord.Guild) -> str:
+    """Quién salió y quién entró al gremio desde la revisión anterior."""
+    if previous is None:
+        return (f"📝 Guardé la lista de **{len(current)}** miembros de {guild_name} en Albion. "
+                "En el próximo informe te digo quién salió o entró.")
+    before, now = {n.lower(): n for n in previous}, {n.lower(): n for n in current}
+    left = sorted((before[k] for k in before.keys() - now.keys()), key=str.lower)
+    joined = sorted((now[k] for k in now.keys() - before.keys()), key=str.lower)
+    nick = {e["jugador"].lower(): int(uid) for uid, e in registros.items() if e.get("jugador")}
+
+    def with_nick(name: str) -> str:
+        member = guild.get_member(nick.get(name.lower(), 0))
+        return f"**{name}** ({member.mention})" if member else f"**{name}**"
+
+    lines = []
+    if left:
+        lines.append(f"🚪 Los jugadores que dejaron {guild_name} estos últimos días son: "
+                     + ", ".join(with_nick(n) for n in left) + ".")
+    else:
+        lines.append(f"✅ De {guild_name} no se ha ido nadie.")
+    if joined:
+        lines.append(("Es más, entraron" if not left else "🆕 Entraron") + " estos jugadores nuevos: "
+                     + ", ".join(with_nick(n) for n in joined) + ".")
+    else:
+        lines.append("No entró nadie nuevo.")
+    lines.append(f"Ahora son **{len(current)}** en Albion.")
+    text = "\n".join(lines)
+    return text if len(text) <= 3000 else text[:2990] + "…"
+
+
+async def review_guild(guild: discord.Guild, previous: list[str] | None = None
+                       ) -> tuple[discord.Embed, list[str] | None] | None:
+    """Arma el informe de un servidor y devuelve también la lista actual del gremio en Albion.
+
+    None si falta configurar el gremio.
+    """
     config = settings.get(guild.id)
     if not config["gremio_id"]:
         return None
     region = config["servidor_albion"]
+    guild_name = config["gremio_nombre"] or "el gremio"
+    try:
+        roster = sorted(p["Name"] for p in await albion.get_guild_members(config["gremio_id"], region))
+    except albion.AlbionAPIError as e:
+        log.warning("[REVISION] %s: sin la lista del gremio: %s", guild.name, e)
+        roster = None
     rol_miembro = settings.role(guild, "rol_miembro")
     rol_aliado = settings.role(guild, "rol_aliado")
     rol_externo = settings.role(guild, "rol_externo")
@@ -80,6 +123,7 @@ async def review_guild(guild: discord.Guild) -> discord.Embed | None:
 
     fuera_gremio, fuera_alianza, falta_rol, no_existe, sin_revisar = [], [], [], [], []
     revisados = 0
+    in_roster = {n.lower() for n in roster or []}
     for member in guild.members:
         if member.bot:
             continue
@@ -91,6 +135,9 @@ async def review_guild(guild: discord.Guild) -> discord.Embed | None:
         if not (is_member or is_ally or is_other):
             continue
         name = _player_name(member, registros)
+        if is_member and name.lower() in in_roster:
+            revisados += 1  # está en la lista del gremio: no hace falta buscarlo
+            continue
         try:
             player = await albion.find_player(name, region)
         except albion.AlbionAPIError:
@@ -118,8 +165,11 @@ async def review_guild(guild: discord.Guild) -> discord.Embed | None:
     embed = discord.Embed(
         title="📋 Revisión de miembros y aliados",
         color=discord.Color.teal(),
-        description=(f"Revisé **{revisados}** jugadores con Albion. "
-                     "**No se quitó ni se dio ningún rol**: esto es solo un aviso para el staff."),
+        description=(
+            (roster_text(guild_name, previous, roster, registros, guild) if roster is not None
+             else "⚠️ La API de Albion no me dio la lista del gremio: quién salió o entró va en el próximo informe.")
+            + f"\n\nRevisé los roles de **{revisados}** jugadores. "
+            "**No se quitó ni se dio ningún rol**: esto es solo un aviso para el staff."),
     )
     sections = [
         (f"🚪 Con rol de miembro pero ya no están en {config['gremio_nombre'] or 'el gremio'}", fuera_gremio),
@@ -135,7 +185,7 @@ async def review_guild(guild: discord.Guild) -> discord.Embed | None:
         embed.add_field(name="✅ Todo en orden", value="Todos tienen el rol que les toca.", inline=False)
     embed.set_footer(text=f"Se revisa cada {REVISION_DAYS} días · /revisionh para revisar ahora")
     embed.timestamp = datetime.now(timezone.utc)
-    return embed
+    return embed, roster
 
 
 class Revision(commands.Cog):
@@ -152,11 +202,21 @@ class Revision(commands.Cog):
             return False
         self._running.add(guild.id)
         try:
-            embed = await review_guild(guild)
-            if embed is None:
+            state = _load(REVISION_FILE)
+            previous = state.get(str(guild.id))
+            previous = previous if isinstance(previous, dict) else {}
+            result = await review_guild(guild, previous.get("miembros"))
+            if result is None:
                 return False
+            embed, roster = result
             await channel.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
             log.info("[REVISION] %s: informe enviado a #%s", guild.name, channel.name)
+            state = _load(REVISION_FILE)
+            state[str(guild.id)] = {
+                "fecha": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "miembros": roster if roster is not None else previous.get("miembros"),
+            }
+            _save_state(state)
             return True
         finally:
             self._running.discard(guild.id)
@@ -170,17 +230,13 @@ class Revision(commands.Cog):
             if channel is None or not settings.get(guild.id)["gremio_id"]:
                 continue
             last = state.get(str(guild.id))
+            last = last.get("fecha") if isinstance(last, dict) else last
             if last and now - datetime.fromisoformat(last) < timedelta(days=REVISION_DAYS):
                 continue
             try:
-                sent = await self._run(guild, channel)
+                await self._run(guild, channel)
             except (albion.AlbionAPIError, discord.HTTPException) as e:
                 log.warning("[REVISION] %s: no pude hacer la revisión: %s", guild.name, e)
-                continue
-            if sent:
-                state = _load(REVISION_FILE)
-                state[str(guild.id)] = now.isoformat(timespec="seconds")
-                _save_state(state)
 
     @scheduler.before_loop
     async def _wait_ready(self):

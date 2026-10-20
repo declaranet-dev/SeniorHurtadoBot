@@ -24,6 +24,7 @@ EXTENSIONS = [
     "bot.cogs.tts",
     "bot.cogs.revision",
     "bot.cogs.asistencia",
+    "bot.cogs.listas",
 ]
 
 

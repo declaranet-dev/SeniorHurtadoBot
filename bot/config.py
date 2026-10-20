@@ -91,13 +91,22 @@ TTS_ANCHOR_CHANNEL = "bot-tts"  # el canal temporal se crea justo debajo de este
 TTS_MAX_CHARS = 500
 TTS_IDLE_SECONDS = 120  # sale solo si el canal de voz queda sin personas este tiempo
 
-# Revisión de miembros y aliados contra Albion y asistencia semanal: se publican en este canal
+# Informes para los administradores: se publican en este canal
 # (si no existe, en el canal de historial de nuevos)
 REPORTS_CHANNEL_NAME = "asistencias-a-cta"
-REVISION_FILE = ROOT_DIR / "data" / "revision.json"  # cuándo se hizo la última revisión
-REVISION_DAYS = 3
 
-# Asistencia semanal en voz (ranking cada lunes)
-ASISTENCIA_FILE = ROOT_DIR / "data" / "asistencia.json"
-ASISTENCIA_TOP = 15
-ASISTENCIA_UTC_OFFSET = -6  # la semana se corta el lunes a las 00:00, hora del centro de México
+# Revisión de miembros y aliados contra Albion (quién salió o entró al gremio)
+REVISION_FILE = ROOT_DIR / "data" / "revision.json"
+REVISION_DAYS = 2
+
+# Asistencia de CTA
+CTA_FILE = ROOT_DIR / "data" / "cta.json"
+CTA_REPORT_DAYS = 3  # cada cuántos días se publica el informe
+CTA_HOURS_UTC = (22, 2, 4, 6)  # horarios de CTA (hora de inicio, UTC)
+CTA_KEY_HOURS_UTC = (4, 6)  # los más importantes
+CTA_WINDOW_HOURS = 2  # cuánto dura cada horario: 22 UTC = de 22:00 a 23:59
+CTA_VOICE_CHANNELS = ("cta 1", "cta 2", "barril", "chill")  # se busca en el nombre del canal
+CTA_MIN_PEOPLE = 12  # condición 1: personas a la vez en esos canales
+CTA_MIN_FAME = 100_000_000  # condición 3: fama de las batallas del gremio en ese horario
+CTA_MIN_MINUTES = 10  # minutos en voz para contar como asistencia
+CTA_SETTLE_MINUTES = 30  # tras el horario se espera esto para que la API tenga las batallas

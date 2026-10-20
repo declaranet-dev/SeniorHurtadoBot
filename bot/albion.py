@@ -113,6 +113,14 @@ async def get_guild(guild_id: str, server: str = "americas") -> dict:
     return await _get_json(f"/api/gameinfo/guilds/{guild_id}", {}, server)
 
 
+async def get_guild_members(guild_id: str, server: str = "americas") -> list[dict]:
+    """Todos los miembros actuales de un gremio (Name, Id, ...)."""
+    data = await _get_json(f"/api/gameinfo/guilds/{guild_id}/members", {}, server)
+    if not isinstance(data, list):
+        raise AlbionAPIError("respuesta inesperada en /guilds/members")
+    return data
+
+
 async def find_player(name: str, server: str = "americas") -> dict | None:
     """Busca un jugador por nombre exacto (sin distinguir mayúsculas).
 
