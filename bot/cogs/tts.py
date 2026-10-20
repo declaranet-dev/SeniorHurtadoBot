@@ -92,6 +92,11 @@ def clean_text(message: discord.Message) -> str:
     return text[:TTS_MAX_CHARS]
 
 
+def anchor_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    """#bot-tts: desde ahí se usa /jointts y debajo se crea el canal temporal."""
+    return discord.utils.find(lambda c: c.name.lower() == TTS_ANCHOR_CHANNEL, guild.text_channels)
+
+
 def percent(n: int) -> str:
     return f"{'+' if n >= 0 else ''}{n}%"
 
@@ -188,7 +193,7 @@ class TTS(commands.Cog):
     async def create_channel(self, voice_channel: discord.VoiceChannel) -> discord.TextChannel:
         """Crea #BotTTSHurtado justo debajo de #bot-tts (o en la categoría del canal de voz)."""
         guild = voice_channel.guild
-        anchor = discord.utils.find(lambda c: c.name.lower() == TTS_ANCHOR_CHANNEL, guild.text_channels)
+        anchor = anchor_channel(guild)
         category = anchor.category if anchor else voice_channel.category
         # Solo permisos que el bot ya tiene: Discord rechaza dar en un canal lo que el bot no puede
         # (por eso no se copian los de la categoría).
@@ -255,8 +260,7 @@ class TTS(commands.Cog):
         if edge_tts is None:
             await interaction.response.send_message("El TTS no está instalado en el bot.", ephemeral=True)
             return
-        anchor = discord.utils.find(lambda c: c.name.lower() == TTS_ANCHOR_CHANNEL,
-                                    interaction.guild.text_channels)
+        anchor = anchor_channel(interaction.guild)
         if anchor is not None and interaction.channel_id != anchor.id:
             await interaction.response.send_message(f"Usa `/jointts` en {anchor.mention}.", ephemeral=True)
             return
