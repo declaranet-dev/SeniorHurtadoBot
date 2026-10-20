@@ -211,6 +211,9 @@ class TTS(commands.Cog):
                 reason="TTS: /jointts")
         except discord.Forbidden as e:
             # Sin "Gestionar permisos" no puede poner permisos propios: se queda con los de la categoría.
+            # Solo si con esos el bot ve el canal; si no, no podría leerlo ni borrarlo después.
+            if category is not None and not category.permissions_for(guild.me).view_channel:
+                raise
             log.warning("[TTS] %s: no pude poner permisos al canal (%s); uso los de la categoría",
                         guild.name, e.text)
             channel = await guild.create_text_channel(
@@ -259,7 +262,7 @@ class TTS(commands.Cog):
             return
         anchor = anchor_channel(interaction.guild)
         if anchor is not None and interaction.channel_id != anchor.id:
-            await interaction.response.send_message(f"Usa /jointts en {anchor.mention}.", ephemeral=True)
+            await interaction.response.send_message(f"Usa `/jointts` en {anchor.mention}.", ephemeral=True)
             return
         if member.voice is None or member.voice.channel is None:
             await interaction.response.send_message("Primero entra a un canal de voz.", ephemeral=True)
@@ -275,6 +278,13 @@ class TTS(commands.Cog):
         if not (perms.connect and perms.speak):
             await interaction.response.send_message(
                 f"No tengo permiso para entrar o hablar en 🔊 {target.name}.", ephemeral=True)
+            return
+        category = anchor.category if anchor else target.category
+        if category is not None and not category.permissions_for(interaction.guild.me).view_channel:
+            await interaction.response.send_message(
+                f"No puedo crear el canal de texto: no veo la categoría **{category.name}**. Dale al rol "
+                f"{interaction.guild.me.top_role.mention} *Ver el canal*, *Gestionar canal* y *Gestionar "
+                "permisos* en esa categoría (Editar categoría > Permisos).", ephemeral=True)
             return
 
         await interaction.response.defer(thinking=True)
