@@ -197,12 +197,16 @@ class TTS(commands.Cog):
         category = anchor.category if anchor else voice_channel.category
         # Solo permisos que el bot ya tiene: Discord rechaza dar en un canal lo que el bot no puede
         # (por eso no se copian los de la categoría).
+        # Lo ven los roles de miembros y de otros gremios (Chavo del 8 y Chusma); el resto, no.
+        writers = [settings.role(guild, k) for k in ("rol_miembro", "rol_externo")]
         overwrites = {
-            guild.default_role: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, read_message_history=True),
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
             guild.me: discord.PermissionOverwrite(
                 view_channel=True, send_messages=True, read_message_history=True),
         }
+        for role in filter(None, writers):
+            overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True)
         topic = (f"Lo que escribas aquí se lee en voz alta en 🔊 {voice_channel.name}. "
                  "Se borra al usar /desconectar.")
         try:
