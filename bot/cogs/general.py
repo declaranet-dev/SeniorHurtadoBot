@@ -31,7 +31,7 @@ BALANCE_TEXT = (
 
 TTS_TEXT = (
     "`/jointts` (en #bot-tts): el bot entra a tu canal de voz y crea #botttshurtado; lo que escribas ahí lo lee en voz "
-    "alta. `/desconectar` lo saca y borra el canal (sale solo a los 2 min sin gente). "
+    "alta si estás en la llamada. `/desconectar` lo saca y borra el canal (sale solo a los 2 min sin gente). "
     "`/hurtadotts`: ayuda. `/configtts` (admins): voz en español, velocidad y volumen."
 )
 
@@ -54,6 +54,14 @@ USAGE_TEXT = (
     "• Gucci kills de todo Albion y resumen de batallas grandes (battle board)."
 )
 
+REPORTS_TEXT = (
+    "Se publican en el canal de historial de nuevos.\n"
+    "• Cada 3 días, revisión de miembros y aliados contra Albion: quién ya no está en el gremio o la "
+    "alianza, o quién ya entró. Solo avisa, no quita roles. `/revisionh` (admins) la hace al momento.\n"
+    "• Cada lunes, ranking de asistencia en voz de la semana (cuenta con 2 o más personas en el canal, "
+    "sin AFK). `/asistenciah`: cómo va esta semana."
+)
+
 
 def help_embed() -> discord.Embed:
     embed = discord.Embed(
@@ -65,6 +73,7 @@ def help_embed() -> discord.Embed:
     embed.add_field(name="🎮 Uso", value=USAGE_TEXT, inline=False)
     embed.add_field(name="🥪 Balance de tortas de jamón", value=BALANCE_TEXT, inline=False)
     embed.add_field(name="🔊 Texto a voz", value=TTS_TEXT, inline=False)
+    embed.add_field(name="📋 Revisión y asistencia", value=REPORTS_TEXT, inline=False)
     return embed
 
 
