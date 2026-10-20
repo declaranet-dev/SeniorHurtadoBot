@@ -57,7 +57,7 @@ USAGE_TEXT = (
 REPORTS_TEXT = (
     "Informes en #asistencias-a-cta:\n"
     "• Cada 2 días: quién salió o entró al gremio en Albion y quién tiene un rol que ya no le toca "
-    "(solo avisa, no quita roles). `/revisionh` (admins) lo hace al momento.\n"
+    "(solo avisa, no quita roles). `/revisionh` (Chespirito) lo hace al momento.\n"
     "• Cada 3 días: asistencia de CTA (22, 02, 04 y 06 UTC). Una pelea cuenta si se cumplen 2 de 3: "
     "12+ en CTA 1, CTA 2, Barril o Chill; horario de CTA; 100M+ de fama en batallas.\n"
     "`/cta`: CTA actual o el último. `/asistenciah`: cuántos hay de cada gremio y la asistencia. "

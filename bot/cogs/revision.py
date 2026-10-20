@@ -17,6 +17,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from bot import albion, settings
+from bot.cogs.balance import deny, is_banker
 from bot.cogs.registro import guild_alliance_id
 from bot.config import REGISTROS_FILE, REPORTS_CHANNEL_NAME, REVISION_DAYS, REVISION_FILE
 
@@ -243,11 +244,14 @@ class Revision(commands.Cog):
         await self.bot.wait_until_ready()
 
     @app_commands.command(name="revisionh",
-                          description="Revisa ahora con Albion a los miembros y aliados (admins)")
-    @app_commands.default_permissions(manage_guild=True)
+                          description="Revisa ahora con Albion a los miembros y aliados (Chespirito)")
     @app_commands.guild_only()
     async def revisionh(self, interaction: discord.Interaction):
         guild = interaction.guild
+        # La usan el rol Chespirito (el del balance) y quien administra el servidor.
+        if not (interaction.user.guild_permissions.manage_guild or is_banker(interaction.user)):
+            await deny(interaction)
+            return
         channel = report_channel(guild)
         if channel is None or not settings.get(guild.id)["gremio_id"]:
             await interaction.response.send_message(
