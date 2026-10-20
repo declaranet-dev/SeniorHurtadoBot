@@ -21,6 +21,7 @@ EXTENSIONS = [
     "bot.cogs.killbot",
     "bot.cogs.battleboard",
     "bot.cogs.balance",
+    "bot.cogs.tts",
 ]
 
 

@@ -5,11 +5,12 @@ from discord import app_commands
 from discord.ext import commands
 
 INVITE_URL = ("https://discord.com/oauth2/authorize?client_id=1556691846376325131"
-              "&scope=bot+applications.commands&permissions=17601178749952")
+              "&scope=bot+applications.commands&permissions=17601181895696")
 
 INSTALL_TEXT = (
     f"1. **Invita el bot** con [este enlace]({INVITE_URL}). Ya pide los permisos que necesita: "
-    "gestionar roles, apodos y eventos, ver canales, escribir, insertar enlaces y adjuntar archivos.\n"
+    "gestionar roles, apodos, canales y eventos, ver canales, escribir, insertar enlaces, adjuntar "
+    "archivos, y conectar y hablar en voz.\n"
     "2. **Sube el rol del bot** por encima de los roles que va a asignar "
     "(Ajustes del servidor > Roles). Si no, no podrá darlos.\n"
     "3. **Usa `/configuracion`** (necesitas el permiso *Gestionar servidor*). Son 4 páginas:\n"
@@ -26,6 +27,12 @@ BALANCE_TEXT = (
     "**Solo el rol chespirito:** `/addh jugador cantidad [razon]` agrega (`1M`, `500k`; negativo "
     "para quitar; si el jugador no existe, lo crea), `/removeh jugador` deja su balance en 0 y "
     "`/prestamoh jugador cantidad` le presta: la deuda se descuenta de lo próximo que se le agregue."
+)
+
+TTS_TEXT = (
+    "`/jointts`: el bot entra a tu canal de voz y crea #botttshurtado; lo que escribas ahí lo lee en voz "
+    "alta. `/desconectar` lo saca y borra el canal (sale solo a los 2 min sin gente). "
+    "`/hurtadotts`: ayuda. `/configtts` (admins): voz en español, velocidad y volumen."
 )
 
 USAGE_TEXT = (
@@ -57,6 +64,7 @@ def help_embed() -> discord.Embed:
     embed.add_field(name="🛠️ Instalación (administradores)", value=INSTALL_TEXT, inline=False)
     embed.add_field(name="🎮 Uso", value=USAGE_TEXT, inline=False)
     embed.add_field(name="🥪 Balance de tortas de jamón", value=BALANCE_TEXT, inline=False)
+    embed.add_field(name="🔊 Texto a voz", value=TTS_TEXT, inline=False)
     return embed
 
 

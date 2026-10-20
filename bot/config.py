@@ -82,3 +82,11 @@ def get_token() -> str:
     if not token:
         raise RuntimeError("Falta DISCORD_TOKEN en el archivo .env")
     return token
+
+# Texto a voz (/jointts)
+TTS_FILE = ROOT_DIR / "data" / "tts.json"  # canales temporales abiertos, para borrarlos al reiniciar
+TTS_DEFAULT_VOICE = "es-CO-SalomeNeural"
+TTS_CHANNEL_NAME = "BotTTSHurtado"  # Discord lo muestra en minúsculas: #botttshurtado
+TTS_ANCHOR_CHANNEL = "bot-tts"  # el canal temporal se crea justo debajo de este, si existe
+TTS_MAX_CHARS = 500
+TTS_IDLE_SECONDS = 120  # sale solo si el canal de voz queda sin personas este tiempo
