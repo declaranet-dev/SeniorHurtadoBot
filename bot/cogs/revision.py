@@ -1,7 +1,7 @@
 """Revisión de miembros y aliados contra Albion, cada 3 días.
 
 Revisa a quien tiene el rol de miembros, de alianza o de otros gremios y
-publica un informe en el canal de historial de nuevos. No quita ni da roles:
+publica un informe en #asistencias-a-cta (o en el historial de nuevos). No quita ni da roles:
 solo avisa al staff.
 """
 
@@ -16,7 +16,7 @@ from discord.ext import commands, tasks
 
 from bot import albion, settings
 from bot.cogs.registro import guild_alliance_id
-from bot.config import REGISTROS_FILE, REVISION_DAYS, REVISION_FILE
+from bot.config import REGISTROS_FILE, REPORTS_CHANNEL_NAME, REVISION_DAYS, REVISION_FILE
 
 log = logging.getLogger("seniorhurtadobot.revision")
 
@@ -32,6 +32,13 @@ def _save_state(data: dict):
     tmp = REVISION_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(REVISION_FILE)
+
+
+def report_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    """#asistencias-a-cta; si no existe, el canal de historial de nuevos."""
+    # Por si el nombre lleva emojis alrededor (p. ej. "📊asistencias-a-cta").
+    found = discord.utils.find(lambda c: REPORTS_CHANNEL_NAME in c.name, guild.text_channels)
+    return found or settings.channel(guild, "canal_historial")
 
 
 def _player_name(member: discord.Member, registros: dict) -> str:
@@ -159,7 +166,7 @@ class Revision(commands.Cog):
         state = _load(REVISION_FILE)
         now = datetime.now(timezone.utc)
         for guild in self.bot.guilds:
-            channel = settings.channel(guild, "canal_historial")
+            channel = report_channel(guild)
             if channel is None or not settings.get(guild.id)["gremio_id"]:
                 continue
             last = state.get(str(guild.id))
@@ -185,10 +192,10 @@ class Revision(commands.Cog):
     @app_commands.guild_only()
     async def revisionh(self, interaction: discord.Interaction):
         guild = interaction.guild
-        channel = settings.channel(guild, "canal_historial")
+        channel = report_channel(guild)
         if channel is None or not settings.get(guild.id)["gremio_id"]:
             await interaction.response.send_message(
-                "Falta configurar el canal de historial de nuevos o el gremio (/configuracion).",
+                f"Falta el canal #{REPORTS_CHANNEL_NAME} (o el de historial de nuevos) o el gremio (/configuracion).",
                 ephemeral=True)
             return
         if guild.id in self._running:
