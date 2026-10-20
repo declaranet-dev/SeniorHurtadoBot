@@ -55,11 +55,13 @@ USAGE_TEXT = (
 )
 
 REPORTS_TEXT = (
-    "Se publican en #asistencias-a-cta.\n"
-    "• Cada 3 días, revisión de miembros y aliados contra Albion: quién ya no está en el gremio o la "
-    "alianza, o quién ya entró. Solo avisa, no quita roles. `/revisionh` (admins) la hace al momento.\n"
-    "• Cada lunes, ranking de asistencia en voz de la semana (cuenta con 2 o más personas en el canal, "
-    "sin AFK). `/asistenciah`: cómo va esta semana."
+    "Informes en #asistencias-a-cta:\n"
+    "• Cada 2 días: quién salió o entró al gremio en Albion y quién tiene un rol que ya no le toca "
+    "(solo avisa, no quita roles). `/revisionh` (admins) lo hace al momento.\n"
+    "• Cada 3 días: asistencia de CTA (22, 02, 04 y 06 UTC). Una pelea cuenta si se cumplen 2 de 3: "
+    "12+ en CTA 1, CTA 2, Barril o Chill; horario de CTA; 100M+ de fama en batallas.\n"
+    "`/cta`: CTA actual o el último. `/asistenciah`: cuántos hay de cada gremio y la asistencia. "
+    "`/chavodel8`, `/alianza`, `/kikin`: listas de miembros, alianza y sin registrar."
 )
 
 
