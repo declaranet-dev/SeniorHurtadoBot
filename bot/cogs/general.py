@@ -5,11 +5,12 @@ from discord import app_commands
 from discord.ext import commands
 
 INVITE_URL = ("https://discord.com/oauth2/authorize?client_id=1556691846376325131"
-              "&scope=bot+applications.commands&permissions=17601178749952")
+              "&scope=bot+applications.commands&permissions=17601181895760")
 
 INSTALL_TEXT = (
     f"1. **Invita el bot** con [este enlace]({INVITE_URL}). Ya pide los permisos que necesita: "
-    "gestionar roles, apodos y eventos, ver canales, escribir, insertar enlaces y adjuntar archivos.\n"
+    "gestionar roles, canales, apodos y eventos, ver canales, conectarse y hablar en voz, escribir, "
+    "insertar enlaces y adjuntar archivos.\n"
     "2. **Sube el rol del bot** por encima de los roles que va a asignar "
     "(Ajustes del servidor > Roles). Si no, no podrá darlos.\n"
     "3. **Usa `/configuracion`** (necesitas el permiso *Gestionar servidor*). Son 4 páginas:\n"
@@ -33,6 +34,8 @@ USAGE_TEXT = (
     "`/registro name guild [alianza]`: registra tu personaje de Albion. El bot lo valida con la API, "
     "te da el rol de tu gremio y te cambia el apodo. También `!registro`, que abre un formulario.\n"
     "`/helphurtado`: muestra esta ayuda (también `!hurtadohelp`).\n"
+    "`/jointts`: el bot entra a tu canal de voz y lee en voz alta lo que escribas en #botttshurtado; "
+    "`/desconectar` lo saca. Más en `/hurtadotts`.\n"
     "\n"
     "**Para quien crea eventos**\n"
     "`/evento` o `!evento`: asistente por pasos: tipo de contenido, horario y salida, cantidad de "
@@ -40,6 +43,7 @@ USAGE_TEXT = (
     "\n"
     "**Para administradores**\n"
     "`/configuracion`: canales, roles y gremio del bot en este servidor.\n"
+    "`/configtts`: voz, velocidad y volumen del TTS.\n"
     "\n"
     "**Automático**\n"
     "• Bienvenida con rol a cada miembro nuevo.\n"

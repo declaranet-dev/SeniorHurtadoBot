@@ -11,7 +11,7 @@ import threading
 
 import discord
 
-from bot.config import ROOT_DIR
+from bot.config import ROOT_DIR, TTS_DEFAULT_VOICE
 
 log = logging.getLogger("seniorhurtadobot.settings")
 
@@ -52,6 +52,9 @@ DEFAULTS = {
     "batalla_min_gremio": 5,  # jugadores del gremio en la batalla para publicarla
     "gucci_min_fama": 5_000_000,
     "tickets_registro": True,  # abrir un canal temporal de registro a cada jugador nuevo
+    "tts_voz": TTS_DEFAULT_VOICE,  # se cambian con /configtts
+    "tts_velocidad": 0,  # % más rápido o más lento
+    "tts_volumen": 0,  # % más alto o más bajo
 }
 
 _lock = threading.Lock()
