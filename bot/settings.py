@@ -11,7 +11,7 @@ import threading
 
 import discord
 
-from bot.config import ROOT_DIR, TTS_DEFAULT_VOICE
+from bot.config import ROOT_DIR
 
 log = logging.getLogger("seniorhurtadobot.settings")
 

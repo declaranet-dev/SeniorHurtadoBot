@@ -30,14 +30,6 @@ BALANCE_ROLE_NAME = "chespirito"  # si no hay rol configurado, se busca uno con 
 BALANCE_SYNC_BOT_ID = 1556124267354267718  # el otro bot de balance, del que se copian los saldos
 BALANCE_SYNC_MINUTES = 60  # cada cuánto se leen sus mensajes nuevos
 
-# TTS (lee en voz alta en un canal de voz)
-TTS_FILE = ROOT_DIR / "data" / "tts.json"  # canales temporales abiertos, para borrarlos tras un reinicio
-TTS_CHANNEL_NAME = "BotTTSHurtado"  # Discord lo deja en minúsculas: #botttshurtado
-TTS_DEFAULT_VOICE = "es-CO-SalomeNeural"
-TTS_MAX_CHARS = 500  # caracteres que se leen de cada mensaje
-TTS_EMPTY_SECONDS = 120  # el bot sale si el canal de voz se queda vacío este tiempo
-TTS_QUEUE_SIZE = 20  # mensajes en espera de leerse
-
 # Eventos
 EVENT_DURATION_HOURS = 2  # Discord exige una hora de fin en eventos externos
 EVENT_DELETE_AFTER_HOURS = 8  # el anuncio se borra estas horas después de la hora del evento

@@ -3,7 +3,7 @@
 Bot de Discord para gremios de Albion Online (Python + discord.py). Un mismo bot sirve para varios servidores de Discord: cada servidor tiene su propia configuración, que se hace con `/configuracion`.
 
 ## Invitar el bot a un servidor
-https://discord.com/oauth2/authorize?client_id=1556691846376325131&scope=bot+applications.commands&permissions=17601181895760
+https://discord.com/oauth2/authorize?client_id=1556691846376325131&scope=bot+applications.commands&permissions=17601178749952
 
 Después, en el servidor:
 1. Pon el rol del bot **por encima** de los roles que va a asignar (Ajustes del servidor > Roles).
@@ -25,13 +25,11 @@ El resumen avisa si al bot le faltan permisos en un canal o si un rol está por 
 - **Eventos** (`/evento` o `!evento`): asistente por pasos: 1) tipo de contenido, 2) formulario con horario UTC, lugar de salida y cantidad de jugadores (1 a 100), 3) rol de cada lugar ("Asignado por Caller" por defecto). Los roles de cada tipo salen de `roles-albion/<tipo>.txt` (un rol por línea); con más de 25 roles se ven por tandas con el botón "Más roles". Crea un evento de Discord y un anuncio con los lugares numerados; cada miembro elige su rol en una lista. El anuncio se borra 8 horas después de la hora del evento.
 - **Killbot:** cada 15 s lee el feed general de Albion y publica las kills (verde) y muertes (rojo) del gremio, con una tarjeta con el equipo, la fama, el valor aproximado en plata y el inventario sobre el fondo `assets/fondo_vecindad.webp`. Las kills de todo Albion con mucha fama salen en el canal de gucci kills.
 - **Battle board:** cada 3 min publica las batallas grandes del gremio (10+ jugadores en total y 5+ del gremio, configurable) como una tarjeta sobre el fondo de la vecindad: resultado, zona, duración, totales, destacados (más kills, mayor daño, más curación, peor desempeño), tabla de gremios y jugadores del gremio con kills, muertes, fama, daño y curación.
-- **TTS** (`/jointts`, `/desconectar`, `/configtts`, ayuda en `/hurtadotts`): el bot entra al canal de voz de quien lo pide y crea el canal temporal `#botttshurtado` justo debajo de `#bot-tts` (visible para todos). Lo que escriban ahí los registrados se lee en voz alta con Edge TTS ("Edgar dice: ..."), hasta 500 caracteres por mensaje y sin enlaces. `/desconectar` saca al bot y borra el canal; también sale solo tras 2 minutos con el canal de voz vacío, y al reiniciarse borra el canal que haya quedado. `/configtts` (administradores) elige la voz en español (por defecto `es-CO-SalomeNeural`), la velocidad y el volumen del servidor.
 - `/helphurtado` (o `!hurtadohelp`): instrucciones de instalación y de uso.
 
 ## Requisitos
 - Python 3.12
-- Dependencias en `requirements.txt`: `discord.py[voice]`, `edge-tts`, `python-dotenv`, `pillow`
-- `ffmpeg` instalado en el sistema (para el TTS)
+- Dependencias en `requirements.txt`: `discord.py`, `python-dotenv`, `pillow`
 - Archivo `.env` con `DISCORD_TOKEN` (no se sube a Git; ver `.env.example`)
 - En el Developer Portal: Bot > Privileged Gateway Intents > activar **Message Content Intent** y **Server Members Intent**
 
@@ -51,7 +49,7 @@ journalctl -u seniorhurtadobot -f
 - `bot/config.py`: constantes y token.
 - `bot/settings.py`: configuración por servidor de Discord.
 - `bot/client.py`: clase del bot y lista `EXTENSIONS`.
-- `bot/cogs/`: un archivo por función (`configuracion`, `general`, `welcome`, `registro`, `tickets`, `eventos`, `killbot`, `battleboard`, `balance`, `tts`).
+- `bot/cogs/`: un archivo por función (`configuracion`, `general`, `welcome`, `registro`, `tickets`, `eventos`, `killbot`, `battleboard`).
 - `bot/albion.py`: cliente de la API de Albion.
 - `bot/killcard.py`: dibuja la tarjeta de cada kill (Pillow).
 - `bot/battlecard.py`: dibuja la tarjeta de cada batalla.
