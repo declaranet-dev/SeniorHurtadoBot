@@ -52,6 +52,9 @@ DEFAULTS = {
     "batalla_min_gremio": 5,  # jugadores del gremio en la batalla para publicarla
     "gucci_min_fama": 5_000_000,
     "tickets_registro": True,  # abrir un canal temporal de registro a cada jugador nuevo
+    "tts_voz": "es-CO-SalomeNeural",  # voz de Edge para /jointts
+    "tts_velocidad": 0,  # % más rápido (+) o más lento (-)
+    "tts_volumen": 0,  # % más fuerte (+) o más bajo (-)
 }
 
 _lock = threading.Lock()
