@@ -190,16 +190,26 @@ class TTS(commands.Cog):
         guild = voice_channel.guild
         anchor = discord.utils.find(lambda c: c.name.lower() == TTS_ANCHOR_CHANNEL, guild.text_channels)
         category = anchor.category if anchor else voice_channel.category
-        overwrites = dict(category.overwrites) if category else {}
-        overwrites[guild.default_role] = discord.PermissionOverwrite(
-            view_channel=True, send_messages=True, read_message_history=True)
-        overwrites[guild.me] = discord.PermissionOverwrite(
-            view_channel=True, send_messages=True, manage_channels=True, read_message_history=True)
-        channel = await guild.create_text_channel(
-            TTS_CHANNEL_NAME, category=category, overwrites=overwrites,
-            topic=f"Lo que escribas aquí se lee en voz alta en 🔊 {voice_channel.name}. "
-                  "Se borra al usar /desconectar.",
-            reason="TTS: /jointts")
+        # Solo permisos que el bot ya tiene: Discord rechaza dar en un canal lo que el bot no puede
+        # (por eso no se copian los de la categoría).
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True),
+        }
+        topic = (f"Lo que escribas aquí se lee en voz alta en 🔊 {voice_channel.name}. "
+                 "Se borra al usar /desconectar.")
+        try:
+            channel = await guild.create_text_channel(
+                TTS_CHANNEL_NAME, category=category, overwrites=overwrites, topic=topic,
+                reason="TTS: /jointts")
+        except discord.Forbidden as e:
+            # Sin "Gestionar permisos" no puede poner permisos propios: se queda con los de la categoría.
+            log.warning("[TTS] %s: no pude poner permisos al canal (%s); uso los de la categoría",
+                        guild.name, e.text)
+            channel = await guild.create_text_channel(
+                TTS_CHANNEL_NAME, category=category, topic=topic, reason="TTS: /jointts")
         if anchor is not None:
             try:
                 await channel.move(after=anchor, reason="TTS: debajo de #bot-tts")
@@ -270,8 +280,7 @@ class TTS(commands.Cog):
         except discord.HTTPException as e:
             log.error("[TTS] %s: no pude crear el canal: %s", interaction.guild.name, e)
             await voice.disconnect(force=True)
-            await interaction.followup.send("❌ No pude crear el canal de texto (falta el permiso "
-                                            "Gestionar canales).")
+            await interaction.followup.send(f"❌ No pude crear el canal de texto: {e.text or e}")
             return
         self.sessions[interaction.guild_id] = Session(voice, channel)
         _remember(interaction.guild_id, channel.id)
