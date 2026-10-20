@@ -90,3 +90,12 @@ TTS_CHANNEL_NAME = "BotTTSHurtado"  # Discord lo muestra en minúsculas: #bottts
 TTS_ANCHOR_CHANNEL = "bot-tts"  # el canal temporal se crea justo debajo de este, si existe
 TTS_MAX_CHARS = 500
 TTS_IDLE_SECONDS = 120  # sale solo si el canal de voz queda sin personas este tiempo
+
+# Revisión de miembros y aliados contra Albion (informe en el canal de historial)
+REVISION_FILE = ROOT_DIR / "data" / "revision.json"  # cuándo se hizo la última revisión
+REVISION_DAYS = 3
+
+# Asistencia semanal en voz (ranking en el canal de historial cada lunes)
+ASISTENCIA_FILE = ROOT_DIR / "data" / "asistencia.json"
+ASISTENCIA_TOP = 15
+ASISTENCIA_UTC_OFFSET = -6  # la semana se corta el lunes a las 00:00, hora del centro de México

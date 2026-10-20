@@ -34,7 +34,8 @@ HELP_TEXT = (
     "🔊 **Texto a voz de SeniorHurtadoBot**\n"
     f"1. Entra a un canal de voz y usa `/jointts` en #{TTS_ANCHOR_CHANNEL}: el bot entra contigo y crea el canal "
     f"**#{TTS_CHANNEL_NAME.lower()}**.\n"
-    "2. Todo lo que escribas en ese canal lo lee en voz alta (\"Tu nombre dice: ...\"). "
+    "2. Lo que escribas en ese canal lo lee en voz alta (\"Tu nombre dice: ...\"), solo si estás "
+    "en la misma llamada que el bot (si no, tu mensaje recibe 🔇). "
     f"Máximo {TTS_MAX_CHARS} caracteres por mensaje; los enlaces no se leen.\n"
     "3. `/desconectar` saca al bot y borra el canal. También sale solo si el canal de voz "
     f"queda vacío {TTS_IDLE_SECONDS // 60} minutos.\n"
@@ -210,7 +211,8 @@ class TTS(commands.Cog):
                 overwrites[role] = discord.PermissionOverwrite(**allow)
         else:
             overwrites[guild.default_role] = discord.PermissionOverwrite(**allow)
-        topic = (f"Lo que escribas aquí se lee en voz alta en 🔊 {voice_channel.name}. "
+        topic = (f"Lo que escribas aquí se lee en voz alta en 🔊 {voice_channel.name}, "
+                 "solo si estás en esa llamada. "
                  "Se borra al usar /desconectar.")
         try:
             channel = await guild.create_text_channel(
@@ -370,6 +372,14 @@ class TTS(commands.Cog):
         if session is None or message.channel.id != session.channel.id:
             return
         if not isinstance(message.author, discord.Member) or not is_registered(message.author):
+            return
+        # Solo se lee a quien está en la misma llamada que el bot.
+        voice = message.author.voice
+        if voice is None or voice.channel is None or voice.channel != session.voice.channel:
+            try:
+                await message.add_reaction("🔇")
+            except discord.HTTPException:
+                pass
             return
         text = clean_text(message)
         if text:

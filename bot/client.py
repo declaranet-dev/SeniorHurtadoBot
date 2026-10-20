@@ -22,6 +22,8 @@ EXTENSIONS = [
     "bot.cogs.battleboard",
     "bot.cogs.balance",
     "bot.cogs.tts",
+    "bot.cogs.revision",
+    "bot.cogs.asistencia",
 ]
 
 
