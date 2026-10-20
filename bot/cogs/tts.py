@@ -32,7 +32,7 @@ EMOJI_RE = re.compile(r"<a?:(\w+):\d+>")
 
 HELP_TEXT = (
     "🔊 **Texto a voz de SeniorHurtadoBot**\n"
-    "1. Entra a un canal de voz y usa `/jointts`: el bot entra contigo y crea el canal "
+    f"1. Entra a un canal de voz y usa `/jointts` en #{TTS_ANCHOR_CHANNEL}: el bot entra contigo y crea el canal "
     f"**#{TTS_CHANNEL_NAME.lower()}**.\n"
     "2. Todo lo que escribas en ese canal lo lee en voz alta (\"Tu nombre dice: ...\"). "
     f"Máximo {TTS_MAX_CHARS} caracteres por mensaje; los enlaces no se leen.\n"
@@ -90,6 +90,11 @@ def clean_text(message: discord.Message) -> str:
     text = EMOJI_RE.sub(r"\1", text)
     text = " ".join(text.split())
     return text[:TTS_MAX_CHARS]
+
+
+def anchor_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    """#bot-tts: desde ahí se usa /jointts y debajo se crea el canal temporal."""
+    return discord.utils.find(lambda c: c.name.lower() == TTS_ANCHOR_CHANNEL, guild.text_channels)
 
 
 def percent(n: int) -> str:
@@ -188,7 +193,7 @@ class TTS(commands.Cog):
     async def create_channel(self, voice_channel: discord.VoiceChannel) -> discord.TextChannel:
         """Crea #BotTTSHurtado justo debajo de #bot-tts (o en la categoría del canal de voz)."""
         guild = voice_channel.guild
-        anchor = discord.utils.find(lambda c: c.name.lower() == TTS_ANCHOR_CHANNEL, guild.text_channels)
+        anchor = anchor_channel(guild)
         category = anchor.category if anchor else voice_channel.category
         # Solo permisos que el bot ya tiene: Discord rechaza dar en un canal lo que el bot no puede
         # (por eso no se copian los de la categoría).
@@ -251,6 +256,10 @@ class TTS(commands.Cog):
             return
         if edge_tts is None:
             await interaction.response.send_message("El TTS no está instalado en el bot.", ephemeral=True)
+            return
+        anchor = anchor_channel(interaction.guild)
+        if anchor is not None and interaction.channel_id != anchor.id:
+            await interaction.response.send_message(f"Usa /jointts en {anchor.mention}.", ephemeral=True)
             return
         if member.voice is None or member.voice.channel is None:
             await interaction.response.send_message("Primero entra a un canal de voz.", ephemeral=True)
