@@ -42,6 +42,8 @@ HELP_TEXT = (
     "Lo pueden usar los jugadores registrados."
 )
 
+TTS_ROLES = ("rol_miembro", "rol_externo")  # quién ve el canal temporal
+
 # Voces de Edge en español; se reemplaza por la lista real al arrancar.
 _voices: list[str] = [TTS_DEFAULT_VOICE]
 
@@ -197,12 +199,17 @@ class TTS(commands.Cog):
         category = anchor.category if anchor else voice_channel.category
         # Solo permisos que el bot ya tiene: Discord rechaza dar en un canal lo que el bot no puede
         # (por eso no se copian los de la categoría).
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, read_message_history=True),
-            guild.me: discord.PermissionOverwrite(
-                view_channel=True, send_messages=True, read_message_history=True),
-        }
+        # Lo ven los roles de miembros y de otros gremios (Chavo del 8 y Chusma); si no están
+        # configurados, todos.
+        allow = dict(view_channel=True, send_messages=True, read_message_history=True)
+        readers = [r for r in (settings.role(guild, k) for k in TTS_ROLES) if r is not None]
+        overwrites = {guild.me: discord.PermissionOverwrite(**allow)}
+        if readers:
+            overwrites[guild.default_role] = discord.PermissionOverwrite(view_channel=False)
+            for role in readers:
+                overwrites[role] = discord.PermissionOverwrite(**allow)
+        else:
+            overwrites[guild.default_role] = discord.PermissionOverwrite(**allow)
         topic = (f"Lo que escribas aquí se lee en voz alta en 🔊 {voice_channel.name}. "
                  "Se borra al usar /desconectar.")
         try:
