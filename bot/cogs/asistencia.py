@@ -35,6 +35,10 @@ log = logging.getLogger("seniorhurtadobot.asistencia")
 WINDOW = timedelta(hours=CTA_WINDOW_HOURS)
 SETTLE = timedelta(minutes=CTA_SETTLE_MINUTES)
 GIVE_UP = timedelta(hours=3)  # si la API no responde en este tiempo, se cierra sin la fama
+# La API de Albion publica las batallas con horas de retraso: tras cerrar un horario
+# se vuelve a pedir su fama cada hora durante este tiempo y se actualiza si sube.
+RECHECK_FOR = timedelta(hours=12)
+RECHECK_EVERY = timedelta(hours=1)
 KEEP_DAYS = 30
 MEDALS = ["🥇", "🥈", "🥉"]
 
@@ -273,16 +277,48 @@ class Asistencia(commands.Cog):
                     still.append(window)
                     continue
                 summary = _summary(guild, window, None, 0, set())
-            entry["ultimo"] = {k: v for k, v in summary.items() if k != "asistentes"}
-            entry["ultimo"]["personas"] = len(summary["asistentes"])
-            if summary["cta"]:
-                entry["ctas"].append(summary)
-            log.info("[CTA] %s: horario %s: voz %d, fama %s, %d de 3 -> %s", guild.name, window["inicio"],
-                     summary["max_voz"], summary["fama"], summary["cumple"],
-                     "CTA" if summary["cta"] else "no fue CTA")
+            self._store(guild, entry, summary)
+            entry.setdefault("revisar", []).append({**window, "revisado": now.isoformat(timespec="seconds")})
         entry["pendientes"] = still
+        await self._recheck(guild, config, entry, now)
         cutoff = now - timedelta(days=KEEP_DAYS)
         entry["ctas"] = [c for c in entry["ctas"] if _parse(c["inicio"]) >= cutoff]
+
+    def _store(self, guild: discord.Guild, entry: dict, summary: dict):
+        """Guarda el resultado de un horario (o lo reemplaza si ya estaba)."""
+        if not entry.get("ultimo") or entry["ultimo"]["inicio"] <= summary["inicio"]:
+            entry["ultimo"] = {k: v for k, v in summary.items() if k != "asistentes"}
+            entry["ultimo"]["personas"] = len(summary["asistentes"])
+        entry["ctas"] = [c for c in entry["ctas"] if c["inicio"] != summary["inicio"]]
+        if summary["cta"]:
+            entry["ctas"].append(summary)
+            entry["ctas"].sort(key=lambda c: c["inicio"])
+        log.info("[CTA] %s: horario %s: voz %d, fama %s, %d de 3 -> %s", guild.name, summary["inicio"],
+                 summary["max_voz"], summary["fama"], summary["cumple"],
+                 "CTA" if summary["cta"] else "no fue CTA")
+
+    async def _recheck(self, guild: discord.Guild, config: dict, entry: dict, now: datetime):
+        """Vuelve a pedir la fama de los horarios recientes, por si la API publicó más batallas."""
+        keep = []
+        for window in entry.get("revisar", []):
+            end = _parse(window["inicio"]) + WINDOW
+            if now > end + RECHECK_FOR:
+                continue  # ya no se revisa más
+            keep.append(window)
+            if now - _parse(window["revisado"]) < RECHECK_EVERY:
+                continue
+            window["revisado"] = now.isoformat(timespec="seconds")
+            try:
+                summary = await close_window(guild, config, window)
+            except albion.AlbionAPIError:
+                continue
+            old = next((c for c in entry["ctas"] if c["inicio"] == window["inicio"]), None)
+            old_fame = (old or (entry.get("ultimo") if (entry.get("ultimo") or {}).get("inicio") == window["inicio"]
+                                else {}) or {}).get("fama") or 0
+            changed_people = old is not None and set(old["asistentes"]) != set(summary["asistentes"])
+            if (summary["fama"] or 0) > old_fame or changed_people or (summary["cta"] and old is None):
+                self._store(guild, entry, summary)
+        entry["revisar"] = keep
 
     async def _maybe_report(self, guild: discord.Guild, entry: dict, now: datetime):
         since = _parse(entry["ultimo_informe"])
