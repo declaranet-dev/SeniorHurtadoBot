@@ -322,6 +322,16 @@ class Asistencia(commands.Cog):
                             inline=False, value=(
                                 f"🎙️ En voz ahora: **{people}/{CTA_MIN_PEOPLE}** · máximo: **{top}/{CTA_MIN_PEOPLE}**\n"
                                 f"⚔️ La fama de las batallas se revisa {CTA_SETTLE_MINUTES} min después de terminar."))
+        # Horarios que ya terminaron pero aún esperan la fama de las batallas.
+        for window in entry.get("pendientes", []):
+            wstart = _parse(window["inicio"])
+            check = wstart + WINDOW + SETTLE
+            voice_ok = window["max_voz"] >= CTA_MIN_PEOPLE
+            embed.add_field(name=f"⏳ Horario {window_label(wstart)} (terminó, falta la fama)", inline=False, value=(
+                f"🎙️ Máximo en voz: **{window['max_voz']}/{CTA_MIN_PEOPLE}** {'✅' if voice_ok else '❌'}\n"
+                f"⚔️ La fama se revisa a las {check:%H:%M} UTC. "
+                + ("Con la voz y el horario ya cuenta como pelea de CTA." if voice_ok
+                   else "Si las batallas suman 100M o más, cuenta como pelea de CTA.")))
         last = entry.get("ultimo")
         if last:
             fame = "sin datos" if last["fama"] is None else short(last["fama"])
@@ -331,7 +341,7 @@ class Asistencia(commands.Cog):
                 f"⚔️ Fama: **{fame}/{short(CTA_MIN_FAME)}** ({last['batallas']} batallas)\n"
                 f"Cumplió **{last['cumple']} de 3** → {verdict}"
                 + (f" · {last['personas']} con asistencia" if last["cta"] else "")))
-        if start is None and not last:
+        if start is None and not last and not entry.get("pendientes"):
             embed.description = "0/0 registros por ahora."
         since = _parse(entry["ultimo_informe"]) if entry.get("ultimo_informe") else now
         count = sum(1 for c in entry.get("ctas", []) if _parse(c["inicio"]) >= since)
