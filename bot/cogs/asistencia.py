@@ -266,7 +266,10 @@ class Asistencia(commands.Cog):
         still = []
         for window in entry["pendientes"]:
             end = _parse(window["inicio"]) + WINDOW
-            if now < end + SETTLE:
+            # Con 12 o más en voz ya es pelea: se marca al terminar el horario,
+            # y el battleboard solo la confirma después (se revisa cada hora).
+            wait = timedelta(0) if window["max_voz"] >= CTA_MIN_PEOPLE else SETTLE
+            if now < end + wait:
                 still.append(window)
                 continue
             try:
@@ -353,17 +356,19 @@ class Asistencia(commands.Cog):
         if start is not None:
             people = len(present_members(guild))
             top = max(people, (current or {}).get("max_voz", 0))
+            counted = sum(1 for m in ((current or {}).get("minutos") or {}).values() if m >= CTA_MIN_MINUTES)
             end = start + WINDOW
             embed.add_field(name=f"🟢 Horario de las {start:%H} UTC en curso (hasta las {end:%H:%M} UTC)",
                             inline=False, value=(
                                 f"🎙️ En voz ahora: **{people}/{CTA_MIN_PEOPLE}** · máximo: **{top}/{CTA_MIN_PEOPLE}**\n"
+                                f"✅ Con asistencia hasta ahora ({CTA_MIN_MINUTES}+ min en voz): **{counted}**\n"
                                 f"⚔️ La fama de las batallas se revisa {CTA_SETTLE_MINUTES} min después de terminar."))
         # Horarios que ya terminaron pero aún esperan la fama de las batallas.
         for window in entry.get("pendientes", []):
             wstart = _parse(window["inicio"])
             check = wstart + WINDOW + SETTLE
             voice_ok = window["max_voz"] >= CTA_MIN_PEOPLE
-            embed.add_field(name=f"⏳ Horario {window_label(wstart)} (terminó, falta la fama)", inline=False, value=(
+            embed.add_field(name=f"⏳ Horario {window_label(wstart)} (terminó, revisando)", inline=False, value=(
                 f"🎙️ Máximo en voz: **{window['max_voz']}/{CTA_MIN_PEOPLE}** {'✅' if voice_ok else '❌'}\n"
                 f"⚔️ La fama se revisa a las {check:%H:%M} UTC. "
                 + ("Con la voz y el horario ya cuenta como pelea de CTA." if voice_ok
