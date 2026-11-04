@@ -13,9 +13,13 @@ from discord.ext import commands
 
 from bot import albion, historial, settings
 from bot.cogs import tickets
+from bot.cogs.balance import banker_role
 from bot.config import REGISTROS_FILE
 
 log = logging.getLogger("seniorhurtadobot.registro")
+
+# Las respuestas del registro solo pueden mencionar al jugador y al rol de reclutadores.
+MENTIONS = discord.AllowedMentions(everyone=False, users=True, roles=True)
 
 def normalize(text: str) -> str:
     """Minúsculas, sin acentos y con espacios simples."""
@@ -157,9 +161,10 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     El mensaje es corto ("Registro completado — jugador"); con detailed (en los
     tickets, que se borran solos) lleva también gremio, alianza, rol y apodo.
 
-    Nadie se queda sin rol: si es del gremio configurado recibe el rol de
-    miembros; si su gremio es de la misma alianza, el de la alianza; en
-    cualquier otro caso, el de otros gremios.
+    Si es del gremio configurado recibe el rol de miembros; si su gremio es
+    de la misma alianza, el de la alianza; si existe pero es de otro gremio
+    (o de ninguno), el de otros gremios. Si el nombre no aparece en Albion
+    (o la API no responde) no recibe ningún rol y se avisa a los reclutadores.
     """
     log.info("[REGISTRO] %s: jugador=%r gremio=%r alianza=%r",
              member, player, guild_name, alliance)
@@ -169,22 +174,23 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     try:
         api_player = await albion.find_player(player, config["servidor_albion"])
     except albion.AlbionAPIError as e:
-        # Sin la API no se puede comprobar nada: se registra con el rol de otros gremios.
+        # Sin la API no se puede comprobar el nombre: no se da rol (ver not_found).
         log.error("[REGISTRO] ERROR: La API de Albion no responde: %s", e)
         api_player, api_down = None, True
 
+    if api_player is None:
+        return await not_found(member, typed_name, typed_guild, api_down), False
+
     alliance_id = ""
-    if api_player is not None:
-        try:
-            alliance_id = await guild_alliance_id(config)
-        except albion.AlbionAPIError as e:
-            log.warning("[REGISTRO] No pude consultar la alianza del gremio: %s", e)
+    try:
+        alliance_id = await guild_alliance_id(config)
+    except albion.AlbionAPIError as e:
+        log.warning("[REGISTRO] No pude consultar la alianza del gremio: %s", e)
     group, reason = classify(api_player, config, alliance_id)
-    if api_player is not None:
-        # Se guardan los nombres oficiales de Albion.
-        player = api_player["Name"]
-        guild_name = api_player.get("GuildName") or "Sin gremio"
-        alliance = api_player.get("AllianceName") or None
+    # Se guardan los nombres oficiales de Albion.
+    player = api_player["Name"]
+    guild_name = api_player.get("GuildName") or "Sin gremio"
+    alliance = api_player.get("AllianceName") or None
     log.info("[REGISTRO] %s: %s (%s)", member, group, reason or "ok")
 
     roles = {key: settings.role(member.guild, f"rol_{key}")
@@ -225,9 +231,6 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     ]
     if role_error:
         lines.append(f"⚠️ No pude darte tu rol: {role_error} Avisa a un admin.")
-    elif api_down:
-        lines.append(f"⚠️ La API de Albion no responde, por lo que le di rol de **{role_names}** "
-                     f"a **{player}**.")
     elif group == "miembro":
         lines.append(f"🏠 ¡Eres de la vecindad! Ya tienes tu rol **{role_names}**.")
     elif group == "aliado":
@@ -240,6 +243,31 @@ async def do_registro(member: discord.Member, player: str, guild_name: str,
     else:
         lines.append(f"🏷️ Tu apodo en el servidor ahora es **{player}**.")
     return "\n".join(lines), role_error is None
+
+
+async def not_found(member: discord.Member, typed_name: str, typed_guild: str, api_down: bool) -> str:
+    """El nombre no aparece en Albion (o la API no responde): no se da ningún rol,
+    se le pide que lo intente de nuevo y se avisa a los reclutadores."""
+    log.info("[REGISTRO] %s: %r %s, sin rol", member, typed_name,
+             "sin comprobar (API caída)" if api_down else "no existe en Albion")
+    try:  # la ficha del historial ayuda al staff a revisar el caso
+        await historial.post_history(member, typed_name, typed_guild, None, None, api_down)
+    except Exception:
+        log.exception("[REGISTRO] No se pudo enviar la ficha al historial")
+    recruiter = banker_role(member.guild)
+    recruiter_text = recruiter.mention if recruiter else "un reclutador"
+    if recruiter and not recruiter.mentionable and not member.guild.me.guild_permissions.mention_everyone:
+        log.warning("[REGISTRO] %s: el rol %s no es mencionable; la mención no avisará a nadie",
+                    member.guild.name, recruiter.name)
+    if api_down:
+        lines = [f"⚠️ **No pude comprobar a {typed_name}**: la API de Albion no responde ahora mismo.",
+                 "Todavía no tienes rol. Vuelve a intentar con /registro en unos minutos."]
+    else:
+        lines = [f"❌ **El nombre {typed_name} es incorrecto o no aparece en Albion.**",
+                 "Todavía no tienes rol. Revisa que esté bien escrito y vuelve a intentar "
+                 "con /registro y el nombre correcto."]
+    lines.append(f"📣 {recruiter_text}, revisen el registro de {member.mention}, por favor.")
+    return "\n".join(lines)
 
 
 async def set_nickname(member: discord.Member, player: str) -> str | None:
@@ -303,7 +331,7 @@ class RegistroModal(discord.ui.Modal, title="Registro en la vecindad"):
             self.alianza.value.strip() or None,
             detailed=tickets.is_ticket(interaction.channel_id),
         )
-        await interaction.followup.send(text)
+        await interaction.followup.send(text, allowed_mentions=MENTIONS)
         if ok:
             await tickets.registered(interaction.user, interaction.channel)
 
@@ -347,7 +375,7 @@ class Registro(commands.Cog):
             return
         async with ctx.typing():
             text, ok = await do_registro(ctx.author, *parsed, detailed=tickets.is_ticket(ctx.channel.id))
-        await ctx.send(text)
+        await ctx.send(text, allowed_mentions=MENTIONS)
         if ok:
             await tickets.registered(ctx.author, ctx.channel)
 
@@ -372,7 +400,7 @@ class Registro(commands.Cog):
             (alianza or "").strip() or None,
             detailed=tickets.is_ticket(interaction.channel_id),
         )
-        await interaction.followup.send(text)
+        await interaction.followup.send(text, allowed_mentions=MENTIONS)
         if ok:
             await tickets.registered(interaction.user, interaction.channel)
 
