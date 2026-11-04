@@ -228,13 +228,14 @@ def report_embed(guild: discord.Guild, ctas: list[dict], since: datetime, until:
 ASISTE_DAYS = 10
 
 
-def player_keys(guild: discord.Guild, query: str, ctas: list[dict]) -> tuple[str | None, set[str], list[str]]:
-    """Busca a un jugador por nombre de Albion, apodo o usuario de Discord.
+def player_names(guild: discord.Guild, ctas: list[dict]) -> tuple[dict[str, set[str]], dict[str, str], dict]:
+    """Todos los nombres con los que se puede buscar a un jugador.
 
-    Devuelve (nombre encontrado, sus claves en "asistentes", nombres parecidos si no hubo uno solo)."""
+    Devuelve (nombre en minúsculas -> claves de asistencia, nombre en minúsculas -> como se escribe,
+    registros del servidor). Primero van los nombres de Albion, luego apodos y usuarios de Discord."""
     registros = _load(REGISTROS_FILE).get(str(guild.id)) or {}
-    names: dict[str, set[str]] = {}  # nombre en minúsculas -> claves de asistencia
-    shown: dict[str, str] = {}       # nombre en minúsculas -> como se escribe
+    names: dict[str, set[str]] = {}
+    shown: dict[str, str] = {}
 
     def add(name: str | None, key: str):
         if name:
@@ -243,14 +244,22 @@ def player_keys(guild: discord.Guild, query: str, ctas: list[dict]) -> tuple[str
 
     for member_id, reg in registros.items():
         add(reg.get("jugador"), member_id)
-    for m in guild.members:
-        if not m.bot:
-            add(m.display_name, str(m.id))
-            add(m.name, str(m.id))
     for cta in ctas:
         for key in cta["asistentes"]:
             if key.startswith("albion:"):
                 add(key[7:], key)
+    for m in guild.members:
+        if not m.bot:
+            add(m.display_name, str(m.id))
+            add(m.name, str(m.id))
+    return names, shown, registros
+
+
+def player_keys(guild: discord.Guild, query: str, ctas: list[dict]) -> tuple[str | None, set[str], list[str]]:
+    """Busca a un jugador por nombre de Albion, apodo o usuario de Discord.
+
+    Devuelve (nombre encontrado, sus claves en "asistentes", nombres parecidos si no hubo uno solo)."""
+    names, shown, registros = player_names(guild, ctas)
     wanted = query.strip().lstrip("@").lower()
     if wanted not in names:
         similar = sorted(shown[n] for n in names if wanted and wanted in n)
@@ -483,6 +492,16 @@ class Asistencia(commands.Cog):
             embed.add_field(name="Faltó a", inline=False, value=_join([fight_line(c) for c in reversed(missed)]))
         embed.set_footer(text="✅ cumple las 3 condiciones · 🟡 cumple 2 · ⭐ horario importante")
         await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+    @asiste.autocomplete("jugador")
+    async def asiste_autocomplete(self, interaction: discord.Interaction, current: str):
+        """Sugiere nombres mientras se escribe: primero los que empiezan así, luego los que lo contienen."""
+        entry = _load().get(str(interaction.guild.id)) or {}
+        _, shown, _ = player_names(interaction.guild, entry.get("ctas", []))
+        wanted = current.strip().lstrip("@").lower()
+        starts = [n for low, n in shown.items() if low.startswith(wanted)]
+        contains = [n for low, n in shown.items() if wanted in low and not low.startswith(wanted)]
+        return [app_commands.Choice(name=n[:100], value=n[:100]) for n in (starts + contains)[:25]]
 
 
 def fmt_wait(delta: timedelta) -> str:
