@@ -60,7 +60,7 @@ REPORTS_TEXT = (
     "(solo avisa, no quita roles). `/revisionh` (Chespirito) lo hace al momento.\n"
     "• Cada 3 días: asistencia de CTA (22, 02, 04 y 06 UTC). Una pelea cuenta si se cumplen 2 de 3: "
     "12+ en CTA 1, CTA 2, Barril o Chill; horario de CTA; 100M+ de fama en batallas.\n"
-    "`/cta`: CTA actual o el último. `/asistenciah`: cuántos hay de cada gremio y la asistencia. "
+    "`/cta`: CTA actual o el último. `/asistenciah`: cuántos hay de cada gremio y la asistencia. `/asiste <jugador>`: sus asistencias a CTA de los últimos 10 días. "
     "`/chavodel8`, `/alianza`, `/kikin`: listas de miembros, alianza y sin registrar."
 )
 

@@ -225,6 +225,50 @@ def report_embed(guild: discord.Guild, ctas: list[dict], since: datetime, until:
     return embed
 
 
+ASISTE_DAYS = 10
+
+
+def player_keys(guild: discord.Guild, query: str, ctas: list[dict]) -> tuple[str | None, set[str], list[str]]:
+    """Busca a un jugador por nombre de Albion, apodo o usuario de Discord.
+
+    Devuelve (nombre encontrado, sus claves en "asistentes", nombres parecidos si no hubo uno solo)."""
+    registros = _load(REGISTROS_FILE).get(str(guild.id)) or {}
+    names: dict[str, set[str]] = {}  # nombre en minúsculas -> claves de asistencia
+    shown: dict[str, str] = {}       # nombre en minúsculas -> como se escribe
+
+    def add(name: str | None, key: str):
+        if name:
+            names.setdefault(name.lower(), set()).add(key)
+            shown.setdefault(name.lower(), name)
+
+    for member_id, reg in registros.items():
+        add(reg.get("jugador"), member_id)
+    for m in guild.members:
+        if not m.bot:
+            add(m.display_name, str(m.id))
+            add(m.name, str(m.id))
+    for cta in ctas:
+        for key in cta["asistentes"]:
+            if key.startswith("albion:"):
+                add(key[7:], key)
+    wanted = query.strip().lstrip("@").lower()
+    if wanted not in names:
+        similar = sorted(shown[n] for n in names if wanted and wanted in n)
+        if len(similar) != 1:
+            return None, set(), similar[:10]
+        wanted = similar[0].lower()
+    keys = set(names[wanted])
+    # Con cuenta de Discord, también cuentan las batallas donde salió solo por su nombre de Albion.
+    aliases = {wanted}
+    for key in keys:
+        if key.isdigit():
+            member = guild.get_member(int(key))
+            aliases |= {n.lower() for n in ((registros.get(key) or {}).get("jugador"),
+                                            member.display_name if member else None) if n}
+    keys |= {k for c in ctas for k in c["asistentes"] if k.startswith("albion:") and k[7:].lower() in aliases}
+    return shown[wanted], keys, []
+
+
 class Asistencia(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -406,6 +450,38 @@ class Asistencia(commands.Cog):
         else:
             embed.add_field(name=f"⚔️ Asistencia a CTA desde el {since:%d/%m}", inline=False,
                             value="0/0 registros por ahora.")
+        await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+
+    @app_commands.command(name="asiste",
+                          description=f"Cuántas asistencias a CTA tiene un jugador en los últimos {ASISTE_DAYS} días")
+    @app_commands.describe(jugador="Nombre del jugador en Albion (o su apodo en Discord)")
+    @app_commands.guild_only()
+    async def asiste(self, interaction: discord.Interaction, jugador: str):
+        guild = interaction.guild
+        now = _now()
+        since = now - timedelta(days=ASISTE_DAYS)
+        entry = _load().get(str(guild.id)) or {}
+        ctas = [c for c in entry.get("ctas", []) if _parse(c["inicio"]) >= since]
+        name, keys, similar = player_keys(guild, jugador, entry.get("ctas", []))
+        if name is None:
+            text = f"No encontré a **{discord.utils.escape_markdown(jugador)}**."
+            if similar:
+                text += " ¿Quisiste decir: " + ", ".join(f"`{n}`" for n in similar) + "?"
+            await interaction.response.send_message(text, ephemeral=True)
+            return
+        came = [c for c in ctas if keys & set(c["asistentes"])]
+        missed = [c for c in ctas if not keys & set(c["asistentes"])]
+        total = len(ctas)
+        embed = discord.Embed(
+            title=f"⚔️ Asistencia de {name}", color=discord.Color.red(), timestamp=now,
+            description=(f"Últimos {ASISTE_DAYS} días (desde el {since:%d/%m %H:%M} UTC).\n"
+                         f"Asistencias: **{len(came)}/{total}** peleas de CTA"
+                         + (f" ({len(came) * 100 // total}%)." if total else ".")))
+        if came:
+            embed.add_field(name="Fue a", inline=False, value=_join([fight_line(c) for c in reversed(came)]))
+        if missed:
+            embed.add_field(name="Faltó a", inline=False, value=_join([fight_line(c) for c in reversed(missed)]))
+        embed.set_footer(text="✅ cumple las 3 condiciones · 🟡 cumple 2 · ⭐ horario importante")
         await interaction.response.send_message(embed=embed, allowed_mentions=discord.AllowedMentions.none())
 
 
