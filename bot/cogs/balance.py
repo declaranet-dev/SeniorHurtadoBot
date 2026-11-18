@@ -8,13 +8,15 @@ Préstamos: /prestamoh suma al saldo y deja la misma cantidad como deuda. Lo
 que después se agregue con /addh paga primero la deuda y solo el resto llega
 al saldo (deuda de 1M y se agregan 1.2M: se suman 200k).
 
-Sincronización: el gremio todavía usa otro bot de balance en #balance. Cada
-hora se leen sus mensajes nuevos (consultas, movimientos, rankings y
+Sincronización: el gremio todavía usa otro bot de balance en #balance. Sus
+mensajes (texto y embeds) se leen en cuanto los escribe o edita, antes de cada
+/balanceh y /rankh, y cada 10 minutos por si acaso (consultas, movimientos, rankings y
 transferencias). De cada jugador se recuerda el último saldo que mostró ese
 bot, y solo la diferencia cuando cambia se aplica aquí (como un /addh), así
 que una simple consulta allá no borra lo que se movió aquí.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -137,13 +139,29 @@ def parse_old_bot(content: str) -> list[tuple[str, int]]:
     return found
 
 
-def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime,
+def message_text(message: discord.Message) -> str:
+    """Texto del mensaje más el de sus embeds (el otro bot a veces responde con embeds)."""
+    parts = [message.content or ""]
+    for e in message.embeds:
+        parts += [e.title or "", e.description or ""]
+        for f in e.fields:
+            parts += [f.name or "", f.value or ""]
+        if e.footer and e.footer.text:
+            parts.append(e.footer.text)
+    return "\n".join(p for p in parts if p)
+
+
+def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime, msg_id: int,
                  baseline: bool, created: set[str]) -> list[str]:
     """Aplica lo que cambió en el otro bot desde la última vez. Devuelve los jugadores que cambiaron.
 
     baseline (primera lectura del canal): solo se anota lo que muestra el otro
     bot, sin mover saldos, porque los saldos iniciales ya salieron de ahí. Los
     jugadores que no existían se crean (en created) con su último saldo.
+
+    De cada jugador se guarda el mensaje del que salió su último saldo
+    (otro_msg); lo que venga de un mensaje más viejo se ignora, y el mismo
+    mensaje editado solo aplica la diferencia nueva.
     """
     data = _load()
     server = _server(data, guild_id)
@@ -153,17 +171,21 @@ def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime,
         player = server["saldos"].get(key)
         if player is None:
             player = server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": saldo,
-                                              "deuda": 0, "saldo_otro": saldo}
+                                              "deuda": 0, "saldo_otro": saldo, "otro_msg": msg_id}
             created.add(key)
             delta, paid = saldo, 0
+        elif player.get("otro_msg", 0) > msg_id:
+            continue  # ya se tiene un saldo más reciente del otro bot
         elif baseline or "saldo_otro" not in player:
             if key in created:
                 player["saldo"] = saldo
             player["saldo_otro"] = saldo
+            player["otro_msg"] = msg_id
             continue
         else:
             delta = saldo - player["saldo_otro"]
             player["saldo_otro"] = saldo
+            player["otro_msg"] = msg_id
             if delta == 0:
                 continue  # allá no se movió nada: se queda lo de aquí
             paid = min(player.get("deuda", 0), delta) if delta > 0 else 0
@@ -186,7 +208,8 @@ def sync_state(guild_id: int) -> int | None:
 
 def set_sync_state(guild_id: int, message_id: int):
     data = _load()
-    _server(data, guild_id)["sync_ultimo"] = message_id
+    server = _server(data, guild_id)
+    server["sync_ultimo"] = max(message_id, server.get("sync_ultimo") or 0)
     _save(data)
 
 
@@ -286,6 +309,7 @@ class ConfirmReset(discord.ui.View):
 class Balance(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self._locks: dict[int, asyncio.Lock] = {}
         self.sync.change_interval(minutes=BALANCE_SYNC_MINUTES)
 
     async def cog_load(self):
@@ -300,26 +324,35 @@ class Balance(commands.Cog):
         return settings.channel(guild, "canal_balance") or discord.utils.find(
             lambda c: c.name.casefold().lstrip("#").startswith("balance"), guild.text_channels)
 
+    def _lock(self, guild_id: int) -> asyncio.Lock:
+        return self._locks.setdefault(guild_id, asyncio.Lock())
+
+    def _process(self, guild: discord.Guild, message: discord.Message, baseline: bool,
+                 created: set[str]) -> list[str]:
+        if message.author.id != BALANCE_SYNC_BOT_ID:
+            return []
+        entries = parse_old_bot(message_text(message))
+        if not entries:
+            return []
+        return apply_synced(guild.id, entries, message.created_at, message.id, baseline, created)
+
     async def sync_guild(self, guild: discord.Guild) -> int:
         """Lee los mensajes nuevos del otro bot y actualiza saldos. Devuelve cuántos cambiaron."""
         channel = self._source_channel(guild)
         if channel is None:
             return 0
-        last = sync_state(guild.id)
-        after = discord.Object(last) if last else None
-        baseline = last is None
-        created: set[str] = set()
-        changed: list[str] = []
-        newest = None
-        async for message in channel.history(limit=None, after=after, oldest_first=True):
-            newest = message.id
-            if message.author.id != BALANCE_SYNC_BOT_ID:
-                continue
-            entries = parse_old_bot(message.content)
-            if entries:
-                changed += apply_synced(guild.id, entries, message.created_at, baseline, created)
-        if newest is not None:
-            set_sync_state(guild.id, newest)
+        async with self._lock(guild.id):
+            last = sync_state(guild.id)
+            after = discord.Object(last) if last else None
+            baseline = last is None
+            created: set[str] = set()
+            changed: list[str] = []
+            newest = None
+            async for message in channel.history(limit=None, after=after, oldest_first=True):
+                newest = message.id
+                changed += self._process(guild, message, baseline, created)
+            if newest is not None:
+                set_sync_state(guild.id, newest)
         if baseline:
             log.info("[BALANCE] %s: primera lectura de #%s (sin mover saldos; %d jugadores nuevos)",
                      guild.name, channel.name, len(created))
@@ -328,13 +361,53 @@ class Balance(commands.Cog):
                      ", ".join(dict.fromkeys(changed)))
         return len(set(changed))
 
+    async def sync_now(self, guild: discord.Guild):
+        """Sincroniza antes de responder /balanceh o /rankh (sin pasar de unos segundos)."""
+        try:
+            await asyncio.wait_for(self.sync_guild(guild), timeout=8)
+        except Exception as e:  # nunca debe impedir que el comando responda
+            log.warning("[BALANCE] %s: no se pudo sincronizar antes de responder: %r", guild.name, e)
+
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message):
+        """Cuando el otro bot escribe en su canal, se sincroniza en ese momento."""
+        if (message.guild is None or message.author.id != BALANCE_SYNC_BOT_ID
+                or message.channel != self._source_channel(message.guild)):
+            return
+        try:
+            await self.sync_guild(message.guild)
+        except Exception:
+            log.exception("[BALANCE] %s: error al sincronizar un mensaje nuevo", message.guild.name)
+
+    @commands.Cog.listener()
+    async def on_raw_message_edit(self, payload: discord.RawMessageUpdateEvent):
+        """El otro bot a veces edita su respuesta (p. ej. "pensando..." y luego el saldo)."""
+        guild = self.bot.get_guild(payload.guild_id) if payload.guild_id else None
+        if guild is None:
+            return
+        channel = self._source_channel(guild)
+        author = (payload.data.get("author") or {}).get("id")
+        if channel is None or payload.channel_id != channel.id or (author and int(author) != BALANCE_SYNC_BOT_ID):
+            return
+        try:
+            message = await channel.fetch_message(payload.message_id)
+            async with self._lock(guild.id):
+                if sync_state(guild.id) is None or payload.message_id > sync_state(guild.id):
+                    return  # todavía no se lee; lo tomará la sincronización normal
+                changed = self._process(guild, message, False, set())
+            if changed:
+                log.info("[BALANCE] %s: sincronizados por un mensaje editado: %s", guild.name,
+                         ", ".join(dict.fromkeys(changed)))
+        except Exception:
+            log.exception("[BALANCE] %s: error al sincronizar un mensaje editado", guild.name)
+
     @tasks.loop(minutes=60)
     async def sync(self):
         for guild in self.bot.guilds:
             try:
                 await self.sync_guild(guild)
-            except discord.HTTPException as e:
-                log.warning("[BALANCE] %s: no se pudo leer el canal del otro bot: %s", guild.name, e)
+            except Exception:  # un error no debe detener la sincronización para siempre
+                log.exception("[BALANCE] %s: no se pudo leer el canal del otro bot", guild.name)
 
     @sync.before_loop
     async def before_sync(self):
@@ -345,27 +418,30 @@ class Balance(commands.Cog):
     @app_commands.autocomplete(jugador=player_autocomplete)
     @app_commands.guild_only()
     async def balanceh(self, interaction: discord.Interaction, jugador: app_commands.Range[str, 1, 64]):
+        await interaction.response.defer(thinking=True)
+        await self.sync_now(interaction.guild)
         player = find(interaction.guild_id, jugador)
         if player is None:
-            await interaction.response.send_message(
-                f"**{jugador}** no tiene registro de balance.", ephemeral=True)
+            await interaction.followup.send(f"**{jugador}** no tiene registro de balance.")
             return
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"💰 **{player['nombre']}** tiene **🪙 {money(player['saldo'])} {UNIT}** 🥪{debt_note(player)}")
 
     @app_commands.command(name="rankh", description=f"Top {RANK_SIZE} de tortas de jamón")
     @app_commands.guild_only()
     async def rankh(self, interaction: discord.Interaction):
+        await interaction.response.defer(thinking=True)
+        await self.sync_now(interaction.guild)
         top = players(interaction.guild_id)[:RANK_SIZE]
         if not top:
-            await interaction.response.send_message("Todavía no hay balances registrados.", ephemeral=True)
+            await interaction.followup.send("Todavía no hay balances registrados.")
             return
         medals = {1: "🥇", 2: "🥈", 3: "🥉"}
         lines = [f"{medals.get(n, f'`{n:>2}.`')} **{p['nombre']}** — 🪙 {money(p['saldo'])}{debt_note(p)}"
                  for n, p in enumerate(top, 1)]
         embed = discord.Embed(title=f"🏆💰 Ranking de {UNIT}", description="\n".join(lines),
                               color=discord.Color.gold())
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
 
     @app_commands.command(name="addh", description="Agrega tortas de jamón a un jugador (rol chespirito)")
     @app_commands.describe(jugador="Jugador (si no existe, se crea)",
