@@ -10,10 +10,10 @@ al saldo (deuda de 1M y se agregan 1.2M: se suman 200k).
 
 Sincronización: el gremio todavía usa otro bot de balance en #balance. Sus
 mensajes (texto y embeds) se leen en cuanto los escribe o edita, antes de cada
-/balanceh y /rankh, y cada 10 minutos por si acaso (consultas, movimientos, rankings y
-transferencias). De cada jugador se recuerda el último saldo que mostró ese
-bot, y solo la diferencia cuando cambia se aplica aquí (como un /addh), así
-que una simple consulta allá no borra lo que se movió aquí.
+/balanceh y /rankh, y cada 10 minutos por si acaso (consultas, movimientos,
+rankings y transferencias). El otro bot manda: el saldo de cada jugador se
+iguala al último que mostró allá. Un /addh hecho solo aquí dura hasta que el
+otro bot vuelva a mostrar a ese jugador.
 """
 
 import asyncio
@@ -153,15 +153,13 @@ def message_text(message: discord.Message) -> str:
 
 def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime, msg_id: int,
                  baseline: bool, created: set[str]) -> list[str]:
-    """Aplica lo que cambió en el otro bot desde la última vez. Devuelve los jugadores que cambiaron.
+    """Copia los saldos que muestra el otro bot. Devuelve los jugadores que cambiaron.
 
-    baseline (primera lectura del canal): solo se anota lo que muestra el otro
-    bot, sin mover saldos, porque los saldos iniciales ya salieron de ahí. Los
-    jugadores que no existían se crean (en created) con su último saldo.
-
+    El otro bot manda: el gremio registra cada movimiento en los dos bots, así
+    que sumar solo la diferencia contaba dos veces (saldos negativos o de más).
     De cada jugador se guarda el mensaje del que salió su último saldo
-    (otro_msg); lo que venga de un mensaje más viejo se ignora, y el mismo
-    mensaje editado solo aplica la diferencia nueva.
+    (otro_msg); lo que venga de un mensaje más viejo se ignora. baseline ya no
+    cambia nada: se deja por compatibilidad.
     """
     data = _load()
     server = _server(data, guild_id)
@@ -170,31 +168,20 @@ def apply_synced(guild_id: int, entries: list[tuple[str, int]], when: datetime, 
         key = key_of(name)
         player = server["saldos"].get(key)
         if player is None:
-            player = server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": saldo,
-                                              "deuda": 0, "saldo_otro": saldo, "otro_msg": msg_id}
+            player = server["saldos"][key] = {"nombre": " ".join(name.split()), "saldo": 0, "deuda": 0}
             created.add(key)
-            delta, paid = saldo, 0
         elif player.get("otro_msg", 0) > msg_id:
             continue  # ya se tiene un saldo más reciente del otro bot
-        elif baseline or "saldo_otro" not in player:
-            if key in created:
-                player["saldo"] = saldo
-            player["saldo_otro"] = saldo
-            player["otro_msg"] = msg_id
+        player["saldo_otro"] = saldo
+        player["otro_msg"] = msg_id
+        delta = saldo - player["saldo"]
+        if delta == 0:
             continue
-        else:
-            delta = saldo - player["saldo_otro"]
-            player["saldo_otro"] = saldo
-            player["otro_msg"] = msg_id
-            if delta == 0:
-                continue  # allá no se movió nada: se queda lo de aquí
-            paid = min(player.get("deuda", 0), delta) if delta > 0 else 0
-            player["deuda"] = player.get("deuda", 0) - paid
-            player["saldo"] += delta - paid
+        player["saldo"] = saldo
         server["historial"].append({
             "fecha": when.isoformat(timespec="seconds"), "por": None, "por_nombre": "bot de balance anterior",
-            "jugador": player["nombre"], "accion": "sincronizar", "cantidad": delta - paid,
-            "pago_deuda": paid, "saldo": player["saldo"], "deuda": player.get("deuda", 0), "razon": None,
+            "jugador": player["nombre"], "accion": "sincronizar", "cantidad": delta,
+            "pago_deuda": 0, "saldo": player["saldo"], "deuda": player.get("deuda", 0), "razon": None,
         })
         changed.append(player["nombre"])
     server["historial"] = server["historial"][-MAX_HISTORY:]
